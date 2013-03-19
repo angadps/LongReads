@@ -25,7 +25,7 @@ fi
 
 echo $i $lent $start $end
 
-samtools mpileup -uIf reference/bcm_hg18.fasta -d 300 -q 10 -Q 0 -gDS -r "chr${region}:${start}-${end}" ${rbase}.sorted.bam > ${vbase}.bcf.$i # -C 1 -6 -E
+samtools mpileup -uIf reference/bcm_hg18.fasta -d 300 -q 0 -Q 0 -gDS -r "chr${region}:${start}-${end}" ${rbase}.sorted.bam > ${vbase}.bcf.$i # -C 1 -6 -E
 
 bcftools view -gvN -e -i 1.0 -p 1.1 ${vbase}.bcf.${i} > ${vbase}.${i}.temp.vcf
 

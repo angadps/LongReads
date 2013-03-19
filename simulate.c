@@ -4,11 +4,15 @@
 // All parameters are optional. Check is performed for duplicate parametes, but not for inconsistency of values.
 
 #include<stdio.h>
-#include<stdlib.h>
+#include <stdlib.h>
 #include<string.h>
 
 #define FULL
 //#define DEBUG
+
+#define NUM_SOM 10000
+#define SOM_MIN 50
+#define SOM_RANGE 20
 
 int reads_hap[111] = {1,1,1,2,2,2,1,2,1,2,1,1,2,2,1,2,1,2,2,1,2,1,1,2,1,2,1,2,1,2,2,1,2,1,1,1,1,2,2,2,1,2,1,2,1,1,2,2,1,2,1,2,2,1,2,1,1,2,1,2,1,2,1,2,2,1,2,1,1,1,1,2,2,2,1,2,1,2,1,1,2,2,1,2,1,2,2,1,2,1,1,2,1,2,1,2,1,2,2,1};
 //long int nbp[23] = {0, 24724971, 24295114, 19950182, 19127306, 18085786, 17089999, 15882142, 14627482, 14027325, 13537473, 13445238, 13234953, 11414298, 10636858, 10033891, 8882725, 7877474, 7611715, 6381165, 6243596, 4694432, 4969143};
@@ -33,16 +37,24 @@ struct read_struct {
 	double snp_errors;
 };
 
+struct som_struct {
+	int position;
+	int prevelance;
+	char alt;
+};
+
 // By default, it will run only for chr21 if FULL is defined, or a small portion of it if FULL is not defined.
 #ifdef FULL
 struct snp_struct snps[300000];
 struct indel_struct indels[35000];
+struct som_struct sites[1000];
 long int N_BP = 46944323; // chr21
 int reads_max = 140000;
 int region = 21;
 #else
 struct snp_struct snps[300000];
 struct indel_struct indels[35000];
+struct som_struct site[1000];
 long int N_BP = 2000000;
 int reads_max = 10000;
 int region = 0;
@@ -61,11 +73,10 @@ char C[3] = "GAT";
 char G[3] = "ATC";
 
 int coverage;
-int def_coverage = 2;
+int def_coverage = 10;
 int read_len = 4000;
 int max_ref_len = 250000000;
-
-char *snp_file, *indel_file;
+char *snp_file, *indel_file, *som_file;
 FILE *fq_file, *log_file;
 const char *file_base = "short_read_1";
 const char *ref_file = "/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/reference/bcm_hg18.fasta";
@@ -84,11 +95,15 @@ int main(int argc, char **argv)
 	coverage = def_coverage;
 	snp_file = (char*)malloc(sizeof(char)*200);
 	indel_file = (char*)malloc(sizeof(char)*200);
+	som_file = (char*)malloc(sizeof(char)*200);
 
+#ifdef DEBUG
+printf("RAND_MAX = %ld\n", RAND_MAX);
+#endif
 	// override parameters
 	if(argc>1) {
 		int param = 1;
-		int snp_ck = 0, err_ck = 0, len_ck = 0, cov_ck = 0, ref_ck = 0, snf_ck = 0, ind_ck = 0, cel_ck = 0, out_ck = 0, reg_ck = 0;
+		int snp_ck = 0, err_ck = 0, len_ck = 0, cov_ck = 0, ref_ck = 0, snf_ck = 0, ind_ck = 0, som_ck = 0, cel_ck = 0, out_ck = 0, reg_ck = 0;
 		for(param=1;param<argc;param++) {
 			char *token[2];
 			token[0] = strtok(argv[param], "=");
@@ -150,6 +165,13 @@ int main(int argc, char **argv)
 						ind_ck++;
 						indel_file = token[1];
 					}
+				} else if(strcmp(token[0],"-som_file")==0) {
+					if(som_ck>0) {
+						printf("Duplicate parameter %s=%s, ignoring..\n", token[0],token[1]);
+					} else {
+						som_ck++;
+						som_file = token[1];
+					}
 				} else if(strcmp(token[0],"-out_base")==0) {
 					if(out_ck>0) {
 						printf("Duplicate parameter %s=%s, ignoring..\n", token[0],token[1]);
@@ -171,8 +193,8 @@ int main(int argc, char **argv)
 		}
 		if(snp_rate>err_rate) {
 			printf("SNP rate (default 0.02) should be lower than error rate (default 0.02). Using default values now...\n");
-				snp_rate = def_snp_rate;
-				err_rate = def_err_rate;
+//				snp_rate = def_snp_rate;
+//				err_rate = def_err_rate;
 		}
 	}
 
@@ -201,8 +223,10 @@ void simulate(int chrnum)
 	int c=0;
 	long int i=0;
 	N_BP = nbp[chrnum];
+	int som_ct = (NUM_SOM * N_BP) / 3000000000;
 	sprintf(snp_file, "/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/snp_%d.list",chrnum);
 	sprintf(indel_file, "/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/indel_%d.list",chrnum);
+	//sprintf(som_file, "/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/som_%0.2f_%0.2f_%d_%d_%d.list",snp_rate,err_rate,coverage,read_len,chrnum);
 	long int n_reads = (nbp[chrnum] * coverage)/read_len;
 	struct read_struct *reads = (struct read_struct*)malloc(sizeof(struct read_struct)*n_reads);
 
@@ -309,16 +333,13 @@ void simulate(int chrnum)
 	srand ( (unsigned)time ( NULL ) );
 	for(i=0;i<n_reads;i++) {
 #ifdef FULL
-		int rnd = rand();
-		reads[i].start = (int)((rnd*(N_BP-read_len))/RAND_MAX) + 1;
+		reads[i].start = (int)((rand()*(N_BP-read_len))/RAND_MAX) + 1;
 #else
 		int read_position_start = 9880000;
-		int rnd = rand();
-		reads[i].start = (int)((rnd*N_BP)/RAND_MAX) + read_position_start;
+		reads[i].start = (int)((rand()*N_BP)/RAND_MAX) + read_position_start;
 #endif
 	}
 	for(i=0;i<n_reads;i++) {
-		int rnd = rand();
 		reads[i].len = read_len;
 		reads[i].str = (char*)malloc(sizeof(char)*(reads[i].len+1));
 	}
@@ -333,6 +354,42 @@ void simulate(int chrnum)
 		reads[i].snp_errors = ssum/(CLT*10);
 		sum = 0; ssum = 0;
 	}
+
+	char buffer[20];
+	FILE *som_f = fopen(som_file,"w");
+	if(som_f == NULL) { printf("Can't open som file \"%s\"\n", som_file); exit(1); }
+
+	for(i=0;i<som_ct;i++) {
+		sites[i].position = (int)((rand()*N_BP)/RAND_MAX) + 1;
+		sites[i].prevelance = (int)((long int)2*coverage*rand()/RAND_MAX) + (100-2*coverage);
+		sites[i].prevelance = (int)((long int)20*rand()/RAND_MAX) + (100-2*coverage-10<0 ? 0 : 100-2*coverage-10);
+		sites[i].prevelance = (int)((long int)SOM_RANGE*rand()/RAND_MAX) + SOM_MIN;
+
+		if(ref_s[sites[i].position-1] == 'A' || ref_s[sites[i].position-1] == 'a')
+			sites[i].alt = A[(int)((long int)3*rand()/RAND_MAX)];
+		else if(ref_s[sites[i].position-1] == 'C' || ref_s[sites[i].position-1] == 'c')
+			sites[i].alt = C[(int)((long int)3*rand()/RAND_MAX)];
+		else if(ref_s[sites[i].position-1] == 'G' || ref_s[sites[i].position-1] == 'g')
+			sites[i].alt = G[(int)((long int)3*rand()/RAND_MAX)];
+		else if(ref_s[sites[i].position-1] == 'T' || ref_s[sites[i].position-1] == 't')
+			sites[i].alt = T[(int)((long int)3*rand()/RAND_MAX)];
+		else if(ref_s[sites[i].position-1] == 'N' || ref_s[sites[i].position-1] == 'n') {
+			i--;
+			continue;
+		} else
+			printf("Encountered unexpected base %c at position %d\n", ref_s[sites[i].position], sites[i].position);
+
+		memset(buffer,'\0',20);
+		sprintf(buffer, "%d", sites[i].position);
+		fputs(buffer,som_f);
+		fputs("\n",som_f);
+
+#ifdef DEBUG
+printf("Created mutation %d at position %d with prevelance %d and allele %c for original %c\n", i, sites[i].position, sites[i].prevelance, sites[i].alt, ref_s[sites[i].position-1]);
+#endif
+	}
+	fclose(som_f);
+
 #ifdef DEBUG
 printf("Before sorting\n");
 for(i=0; i<n_reads; i++) {
@@ -359,7 +416,7 @@ for(i=0; i<n_reads; i++) {
 		int snp_flag = 0, indel_flag = 0;
 		for(j=0;j<reads[i].len;j++) {
 			int homon_hash = 100;
-			int snp_ct = 0, common_snp = 0;
+			int snp_ct = 0, common_snp = 0, som = 0, som_snp = 0;
 			int ctj_start = snp_ct_start > j_st ? snp_ct_start : j_st;
 			for(snp_ct = ctj_start; snp_ct <= ctr; snp_ct++) {
 				common_snp = 0;
@@ -372,7 +429,7 @@ for(i=0; i<n_reads; i++) {
 					j_st = snp_ct+1;
 					reads[i].str[k] = snps[snp_ct].all[reads_hap[i%100]-1];
 					qualstr[k]='I';
-					qsum = rand()%20 + 20;
+					qsum = rand()%30 + 20;
 					qsum += 33;
 #ifdef DEBUG
 printf("True\t%d\n",qsum);
@@ -402,7 +459,7 @@ printf("Replacing common snp %c with %c on read %d at position %d,%d,%d\n",*(ref
 					int inct = 0;
 					while(reads[i].str[k] = (indels[indel_ct].all[reads_hap[i%100]-1])[inct]) {
 						qualstr[k]='I';
-					qsum = rand()%20 + 20;
+					qsum = rand()%30 + 20;
 					qsum += 33;
 #ifdef DEBUG
 printf("True\t%d\n",qsum);
@@ -424,19 +481,40 @@ printf("Indeling site %c with %s on read %d up to position %d,%d,%d\n",*(ref_s+r
 			}
 			if(common_indel==1) continue;
 
+			for(som=0;som<som_ct;som++) {
+				som_snp = 0;
+				if(sites[som].position == reads[i].start+j+1) {
+					if(som%2+reads_hap[i%100]%2==1) {
+						long int rnd = (long int)100*rand()/RAND_MAX;
+						if(rnd <= sites[som].prevelance) {
+							reads[i].str[k] = sites[som].alt;
+							qualstr[k]='I';
+							qsum = rand()%30 + 20;
+							qsum += 33;
+							qualstr[k]=(int)qsum;
+							som_snp = 1;
+#ifdef DEBUG
+printf("Adding somatic mutation at ref %c to %c on read %d at position %d,%d,%d\n",*(ref_s+reads[i].start+j),sites[som].alt,i,k+1,j+1,reads[i].start+j+1);
+#endif
+						}
+					}
+					break;
+				}
+			}
+
 			double check = (100*(double)rand())/RAND_MAX;
 			if(check > reads[i].del_errors+reads[i].snp_errors) {
-				if(common_snp==0) {
+				if(common_snp==0&&som_snp==0) {
 					reads[i].str[k] = *(ref_s+reads[i].start+j);
 					qualstr[k]='I';
-					qsum = rand()%20 + 20;
+					qsum = rand()%30 + 20;
 					qsum += 33;
 #ifdef DEBUG
 printf("True\t%d\n",qsum);
 #endif
 					qualstr[k]=(int)qsum;
 #ifdef DEBUG
-printf("inserting %c on read %d at position %d,%d,%d\n",*(ref_s+reads[i].start+j),i,k+1,j+1,reads[i].start+j+1);
+printf("inserting %c on read %d at position %d,%d,%d\n",reads[i].str[k],i,k+1,j+1,reads[i].start+j+1);
 #endif
 				}
 				k++;
@@ -451,7 +529,7 @@ printf("inserting %c on read %d at position %d,%d,%d\n",*(ref_s+reads[i].start+j
 					reads[i].str[k] = G[(int)((long int)3*rand()/RAND_MAX)];
 				} else { reads[i].str[k] = *(ref_s+reads[i].start+j); }
 				qualstr[k]='!';
-				qsum = rand()%14 + 16;
+				qsum = rand()%14 + 6;
 				qsum += 33;
 #ifdef DEBUG
 printf("False\t%d\n",qsum);

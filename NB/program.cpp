@@ -368,7 +368,13 @@ int read_sam_files(FILE *fq_file)
 		if(star != '@') { // for each new read in the file
 			line = str;
 			vector<string> read_line = split(line, '\t', 0);
+			string hapl_s = read_line[0];
+			vector<string> hapl_v = split(hapl_s,':',0);
+			int hapl_i = atoi(hapl_v[2].c_str());
 			long start = atol(read_line[3].c_str());
+#ifdef DEBUG
+cout << "Read: " << start << " has haplotype: " << hapl_i << endl;
+#endif
 			string cigar = read_line[5];
 			int slen = s_len(cigar.c_str());
 			int rev_slen = rev_s_len(cigar.c_str());
@@ -383,7 +389,7 @@ cout << slen << "\t" << rev_slen << "\t" << Ndels << "\t" << endl;
 #ifdef FULLDEBUG
 cout << "Start " << start << ", Length = " << length << endl;
 #endif
-			READ *read = new READ(start,length); // create new read object
+			READ *read = new READ(start,length,hapl_i); // create new read object
 
 #ifdef FULLDEBUG
 cout << start << "\t" << (*snp_begin)->GetPos() << endl;
@@ -490,6 +496,9 @@ cout << "Nbsymbols = " << nbSymbols << endl;
 			prior[1] = novel_prior[1];
 			prior[2] = novel_prior[2];
 		}
+		prior[0] = 1;
+		prior[1] = 1;
+		prior[2] = 1;
 		sam_post[0] = gt2[0]*prior[0];
 		sam_post[1] = gt2[1]*prior[1];
 		sam_post[2] = gt2[2]*prior[2];
@@ -513,8 +522,7 @@ cout << "Nbsymbols = " << nbSymbols << endl;
 		som_post[1] /= normal;
 		som_post[2] /= normal;
 
-		stateOutput << (*snp_it)->GetChr() << "\t" << (*snp_it)->GetPos() << "\t" << (*snp_it)->GetKnown() << "\t" << gp << "\t" << hmm_post[0] << "\t" << hmm_post[1] << "\t" << hmm_post[2] << "\t" << sam_post[0] << "\t" << sam_post[1] << "\t" << sam_post[2] << "\t" << sam_post[1]/sam_post[0] << "\t" << hmm_post[1]/hmm_post[0] << "\t" << (*snp_it)->GetSom() << "\t" << st[1] << endl;
-		// stateOutput << (*snp_it)->GetChr() << "\t" << (*snp_it)->GetPos() << "\t" << (*snp_it)->GetKnown() << "\t" << gp << "\t" << gt[0] << "\t" << gt[1] << "\t" << gt[2] << "\t" << gt2[0] << "\t" << gt2[1] << "\t" << gt2[2] << endl;
+		stateOutput << (*snp_it)->GetChr() << "\t" << (*snp_it)->GetPos() << "\t" << (*snp_it)->GetKnown() << "\t" << gp << "\t" << hmm_post[0] << "\t" << hmm_post[1] << "\t" << hmm_post[2] << "\t" << sam_post[0] << "\t" << sam_post[1] << "\t" << sam_post[2] << "\t" << sam_post[1]/sam_post[0] << "\t" << hmm_post[1]/hmm_post[0] << "\t" << (*snp_it)->GetSom() << "\t" << som_post[1] << endl;
 	}
 	for(vector<READ*>::iterator read_it = reads_list.begin()+reads_list.size()-(long)nbSymbols+1; read_it != reads_list.end(); read_it++) {
 		distanceOutput << (*read_it)->GetHap() << "\t" << (*read_it)->GetPos() << "\t" << (*read_it)->GetSnpCount() << "\t" << (*read_it)->GetKnownCount() << endl;
@@ -634,7 +642,7 @@ cout << argc << endl;
 	ofstream distanceOutput(distanceOutputName);
 
 	while(iter<span) {
-	//while(iter<1) {
+	//while(iter<10) {
 		read_snp_file(snp_file, read_info[iter].end + MAX_READ_LEN); // Reads specified range or from pos 1
 		int read_ct = read_sam_files(fq_file); // Reads 10000 at a time
 		if(iter==0) {
@@ -649,7 +657,6 @@ cout << argc << endl;
 		// Delete snps [start,end)
 		delete_objects(read_info[iter].start, read_info[iter].end);
 		iter++;
-		//flag_iter = 0;
 	}
 
 		distanceOutput.close();

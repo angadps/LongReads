@@ -3,17 +3,22 @@
 
 prefix=$1
 inp=$2
+coverage=$3
 
 rm ${prefix}.a
 qsub -sync y -l mem=1G,time=3:: -t 1-100 ./analyze.sh $prefix
 
-sort -k4,4g ${prefix}.b[0-9]* > ${prefix}.b
+cp output/b.header ${prefix}.b
+cp output/c.header ${prefix}.c
+
+sort -k4,4g ${prefix}.b[0-9]* >> ${prefix}.b
+sort -k4,4g ${prefix}.c[0-9]* >> ${prefix}.c
 rm ${prefix}.b[0-9]*
+rm ${prefix}.c[0-9]*
 
 # Code to find point of maximum distance on the plot from a (random) diagonal
 echo "Farthest point from diagonal" >> ${prefix}.a
 awk 'function ddist(x,y) {min=100;x=x*100;y=y*100; for(i=1;i<=100;i++) {if(sqrt((x-i)*(x-i)+(y-i)*(y-i))<min) min=sqrt((x-i)*(x-i)+(y-i)*(y-i));} return min;} BEGIN {hpd=0;hpx=0;hpy=0;hpi=0;hrd=0;hrx=0;hry=0;hri=0;spd=0;spx=0;spy=0;spi=0;srd=0;srx=0;sry=0;sri=0;} {if(ddist($1,$3)>hpd) {hpd=ddist($1,$3);hpx=$1;hpy=$3;hpi=$4;} if(ddist($2,$3)>hrd) {hrd=ddist($2,$3);hrx=$2;hry=$3;hri=$4;} if(ddist($5,$7)>spd) {spd=ddist($5,$7);spx=$5;spy=$7;spi=$4;} if(ddist($6,$7)>srd) {srd=ddist($6,$7);srx=$6;srx=$7;sri=$4;}} END{print "HMM(pow,acc)",hpx,hpy,hpd,hpi;print "Sam(pow,acc)",spx,spy,spd,spi;print "HMM(spc,sen)",hrx,hry,hrd,hri;print "Sam(spc,sen)",srx,sry,srd,sri;}' ${prefix}.b >> ${prefix}.a
-#awk 'BEGIN{hpd=0;hpx=0;hpy=0;hrd=0;hrx=0;hry=0;spd=0;spx=0;spy=0;srd=0;srx=0;sry=0;} {if(ddist($1,$3)<hpd) {hpd=ddist($1,$3);hpx=$1;hpy=$3;} if(ddist($2,$3)<hrd) {hrd=ddist($2,$3);hrx=$2;hry=$3;} if(ddist($5,$7)<spd) {spd=ddist($5,$7);spx=$5;spy=$7;} if(ddist($6,$7)<srd) {srd=ddist($6,$7);srx=$6;srx=y7;}} END{print "HMM(pow,acc)",hpx,hpy,hpd;print "Sam(pow,acc)",spx,spy,spd;print "HMM(spc,sen)",hrx,hry,hrd;print "Sam(spc,sen)",srx,sry,srd;}' ${prefix}.b >> ${prefix}.a
 echo >> ${prefix}.a
 
 hx=`grep HMM ${prefix}.a | grep pow | cut -d' ' -f 2`
@@ -32,6 +37,7 @@ echo "set ylabel 'Sensitivity'" >> ${prefix}.gnu
 echo "set output '${prefix}_ROC.png'" >> ${prefix}.gnu
 echo "plot '${prefix}.b' using 2:3 w l ls 1, \\" >> ${prefix}.gnu
 echo "	'${prefix}.b' using 6:7 w l ls 2" >> ${prefix}.gnu
+# echo "	'${prefix}.c' using 2:3 w l ls 3" >> ${prefix}.gnu
 gnuplot ${prefix}.gnu
 
 cp base.gnu ${prefix}.gnu
@@ -43,6 +49,34 @@ echo "	'${prefix}.b' using 5:7 w l ls 2, \\" >> ${prefix}.gnu
 echo "	\"<echo '$hx $hy'\" w p, \\" >> ${prefix}.gnu
 echo "	\"<echo '$sx $sy'\" w p" >> ${prefix}.gnu
 gnuplot ${prefix}.gnu
+
+cp base.gnu ${prefix}.gnu
+echo "set xlabel '(1 - Specificity)'" >> ${prefix}.gnu
+echo "set ylabel 'Sensitivity'" >> ${prefix}.gnu
+echo "set output '${prefix}_som_ROC.png'" >> ${prefix}.gnu
+echo "plot '${prefix}.c' using 2:3 w l ls 1, \\" >> ${prefix}.gnu
+echo "	'${prefix}.c' using 6:7 w l ls 2" >> ${prefix}.gnu
+gnuplot ${prefix}.gnu
+
+cp base.gnu ${prefix}.gnu
+echo "set xlabel '(1 - Accuracy)'" >> ${prefix}.gnu
+echo "set ylabel 'Power'" >> ${prefix}.gnu
+echo "set output '${prefix}_som_Power.png'" >> ${prefix}.gnu
+echo "plot '${prefix}.c' using 1:3 w l ls 1, \\" >> ${prefix}.gnu
+echo "	'${prefix}.c' using 5:7 w l ls 2" >> ${prefix}.gnu
+gnuplot ${prefix}.gnu
+
+# cd output
+# sr=`basename $prefix | cut -d'_' -f1`
+# ir=`basename $prefix | cut -d'_' -f2`
+# cov=`basename $prefix | cut -d'_' -f3`
+# rl=`basename $prefix | cut -d'_' -f4`
+
+# prev=`echo "scale=2; (100-2*$coverage)/100" | bc -l`
+# Rscript plot_novel.R $sr $ir $cov $rl
+# Rscript plot_som.R $sr $ir $cov $rl $prev
+#  ./som.sh $coverage
+# cd ..
 
 # Code to find sensitivity to accuracy ratio based on maximum value of genotype - single point in plot
 # Maybe split for known and novel hets later?

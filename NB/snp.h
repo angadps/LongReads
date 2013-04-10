@@ -9,7 +9,7 @@ public:
 
   SNP(void);
   //SNP(long snp_pos, char snp_ref, char snp_alt, int type, READ *read, vector<string>, bool known);
-  SNP(string chr, long snp_pos, char snp_ref, char snp_alt, vector<string>, int known, double qual);
+  SNP(string chr, long snp_pos, char snp_ref, char snp_alt, vector<string>, int known, int som, double qual);
 
   ~SNP(void);
 
@@ -25,6 +25,7 @@ public:
   int GetErrCount();
   double* GetGenLik();
   int GetKnown();
+  int GetSom();
   double GetQualScore();
   int GetOverlapCount();
   int GetKnownOverlapCount();
@@ -35,14 +36,13 @@ public:
   void addEmission(int haplotype, double probability);
   void IncrOverlapCount();
   void IncrKnownOverlapCount();
-//  void PrintPosterior();
-//  void PrintLR();
   double* GetPosteriors();
   double* GetSomaticPosteriors();
 
 private:
   char chr[10];
   int known;
+  int som;
   char ref;
   char alt;
   int refcount;
@@ -59,13 +59,11 @@ private:
   double genprob;
   READ **reads;
   double *gl;
-//  double **posteriors;
   double *posterior;
   double *somatic_posterior;
   double emission[3];
 
 void add_read(int type, READ *read);
-//void CalculateLikelihoodRatio();
 
 };
 

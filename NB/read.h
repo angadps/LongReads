@@ -6,7 +6,7 @@ class READ {
 public:
   READ(void);
   READ(const READ&);
-  READ(long start, int length);
+  READ(long start, int length, int hapl_i);
   READ (int i);
   READ (double i);
 

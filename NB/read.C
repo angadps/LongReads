@@ -25,7 +25,6 @@ cout << "Invoking plain READ" << endl;
 
 READ::~READ()
 {
-//	cout << "Read destructor called: " << start << endl;
 	delete [] qualstring;
 	delete [] alleles;
 	delete [] snps;
@@ -46,12 +45,12 @@ READ::READ (double i)
 	cout << "This is a double initialization of READ. This should not be invoked" << endl;
 }
 
-READ::READ(long st, int len)
+READ::READ(long st, int len, int hapl_i)
 {
 	length = len;
 	snp_count = -1;
 	known_count = 0;
-	hap = 1;
+	hap = hapl_i;
 	hprob = 0.5;
 	start = st;
 	snps = new SNP*[4000];
@@ -71,7 +70,6 @@ void READ::assignHaplotype(int haplotype, double prob)
 	if(haplotype!=1&&haplotype!=2) {
 		cout << "Assigning incorrect haplotype value " << haplotype << endl;
 	}
-//cout << "Prob:: " << prob << endl;
 	if(prob<0.0||prob>1.0) {
 		cout << "Assigning incorrect haplotype probability " << prob << " to haplotype " << haplotype << endl;
 	}

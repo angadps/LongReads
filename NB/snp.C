@@ -14,10 +14,11 @@ using namespace std;
 #include "snp.h"
 
 //SNP::SNP(long snp_pos, char snp_ref, char snp_alt, int type, READ *read, vector<string> gl3, bool known_par)
-SNP::SNP(string chr_s, long snp_pos, char snp_ref, char snp_alt, vector<string> gl3, int known_par, double qualscore)
+SNP::SNP(string chr_s, long snp_pos, char snp_ref, char snp_alt, vector<string> gl3, int known_par, int som_par, double qualscore)
 {
 	strcpy(chr,chr_s.c_str());
 	known = known_par;
+	som = som_par;
 	ref = snp_ref;
 	alt = snp_alt;
 	refcount = altcount = errcount = 0;
@@ -29,11 +30,8 @@ SNP::SNP(string chr_s, long snp_pos, char snp_ref, char snp_alt, vector<string> 
 	likelihood_ratio = -1;
 	reads = new READ*[200];
 	gl = new double[3];
-	//posteriors = new double*[70];
 	posterior = new double[3];
 	somatic_posterior = new double[3];
-
-//	add_read(type, read);
 
 	gl[0] = pow(10.0, -(atof(gl3[0].c_str()))/10.0);
 	gl[1] = pow(10.0, -(atof(gl3[1].c_str()))/10.0);
@@ -44,9 +42,9 @@ SNP::SNP(string chr_s, long snp_pos, char snp_ref, char snp_alt, vector<string> 
 	posterior[1] = gl[1]/norm;
 	posterior[2] = gl[2]/norm;
 
-	somatic_posterior[0] = 0.0;
-	somatic_posterior[1] = 0.0;
-	somatic_posterior[2] = 0.0;
+	somatic_posterior[0] = 1.0;
+	somatic_posterior[1] = 1.0;
+	somatic_posterior[2] = 1.0;
 
 	emission[1] = 0.0;
 	emission[2] = 0.0;
@@ -54,10 +52,8 @@ SNP::SNP(string chr_s, long snp_pos, char snp_ref, char snp_alt, vector<string> 
 
 SNP::~SNP()
 {
-//cout << "SNP Destructor called: " << position << endl;
 	delete [] reads;
 	delete [] gl;
-//	delete[] posteriors;
 	delete [] posterior;
 }
 
@@ -124,7 +120,10 @@ void SNP::IncrKnownOverlapCount()
 
 READ* SNP::GetRead(int pos)
 {
-	return reads[pos];
+	if(pos==-1)
+		return NULL;
+	else
+		return reads[pos];
 }
 
 char SNP::GetRef()
@@ -163,9 +162,13 @@ double* SNP::GetGenLik()
 }
 
 int SNP::GetKnown()
-
 {
 	return known;
+}
+
+int SNP::GetSom()
+{
+	return som;
 }
 
 double SNP::GetQualScore()

@@ -11,7 +11,7 @@
 //#define DEBUG
 
 #define NUM_SOM 10000
-#define SOM_MIN 50
+#define SOM_MIN 40
 #define SOM_RANGE 20
 
 int reads_hap[111] = {1,1,1,2,2,2,1,2,1,2,1,1,2,2,1,2,1,2,2,1,2,1,1,2,1,2,1,2,1,2,2,1,2,1,1,1,1,2,2,2,1,2,1,2,1,1,2,2,1,2,1,2,2,1,2,1,1,2,1,2,1,2,1,2,2,1,2,1,1,1,1,2,2,2,1,2,1,2,1,1,2,2,1,2,1,2,2,1,2,1,1,2,1,2,1,2,1,2,2,1};
@@ -200,19 +200,14 @@ printf("RAND_MAX = %ld\n", RAND_MAX);
 
 	int chrnum;
 	char file_name[200];
-	char log_file_name[200];
 	char *ext = ".fq";
 	char *log = ".log";
 
 	sprintf(file_name, "%s%s", file_base, ext);
-	sprintf(log_file_name, "%s%s", file_base, log);
 	fq_file = fopen(file_name, "w");
-	//log_file = fopen(log_file_name, "w");
 
 	if (fq_file == NULL)
 		printf("Error opening output file [%s]\n", (const char *) file_name);
-	if (log_file == NULL)
-		printf("Error opening output file [%s]\n", (const char *) log_file_name);
 
 	simulate(region);
 	fclose(fq_file);
@@ -228,6 +223,7 @@ void simulate(int chrnum)
 	sprintf(indel_file, "/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/indel_%d.list",chrnum);
 	//sprintf(som_file, "/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/som_%0.2f_%0.2f_%d_%d_%d.list",snp_rate,err_rate,coverage,read_len,chrnum);
 	long int n_reads = (nbp[chrnum] * coverage)/read_len;
+//n_reads = 50000;
 	struct read_struct *reads = (struct read_struct*)malloc(sizeof(struct read_struct)*n_reads);
 
 	for(c=0;c<n_reads;c++) {
@@ -363,7 +359,7 @@ void simulate(int chrnum)
 		sites[i].position = (int)((rand()*N_BP)/RAND_MAX) + 1;
 		sites[i].prevelance = (int)((long int)2*coverage*rand()/RAND_MAX) + (100-2*coverage);
 		sites[i].prevelance = (int)((long int)20*rand()/RAND_MAX) + (100-2*coverage-10<0 ? 0 : 100-2*coverage-10);
-		sites[i].prevelance = (int)((long int)SOM_RANGE*rand()/RAND_MAX) + SOM_MIN;
+		//sites[i].prevelance = (int)((long int)SOM_RANGE*rand()/RAND_MAX) + SOM_MIN;
 
 		if(ref_s[sites[i].position-1] == 'A' || ref_s[sites[i].position-1] == 'a')
 			sites[i].alt = A[(int)((long int)3*rand()/RAND_MAX)];
@@ -429,7 +425,7 @@ for(i=0; i<n_reads; i++) {
 					j_st = snp_ct+1;
 					reads[i].str[k] = snps[snp_ct].all[reads_hap[i%100]-1];
 					qualstr[k]='I';
-					qsum = rand()%30 + 20;
+					qsum = rand()%30 + 21;
 					qsum += 33;
 #ifdef DEBUG
 printf("True\t%d\n",qsum);
@@ -459,7 +455,7 @@ printf("Replacing common snp %c with %c on read %d at position %d,%d,%d\n",*(ref
 					int inct = 0;
 					while(reads[i].str[k] = (indels[indel_ct].all[reads_hap[i%100]-1])[inct]) {
 						qualstr[k]='I';
-					qsum = rand()%30 + 20;
+					qsum = rand()%30 + 21;
 					qsum += 33;
 #ifdef DEBUG
 printf("True\t%d\n",qsum);
@@ -489,7 +485,7 @@ printf("Indeling site %c with %s on read %d up to position %d,%d,%d\n",*(ref_s+r
 						if(rnd <= sites[som].prevelance) {
 							reads[i].str[k] = sites[som].alt;
 							qualstr[k]='I';
-							qsum = rand()%30 + 20;
+							qsum = rand()%30 + 21;
 							qsum += 33;
 							qualstr[k]=(int)qsum;
 							som_snp = 1;
@@ -507,7 +503,7 @@ printf("Adding somatic mutation at ref %c to %c on read %d at position %d,%d,%d\
 				if(common_snp==0&&som_snp==0) {
 					reads[i].str[k] = *(ref_s+reads[i].start+j);
 					qualstr[k]='I';
-					qsum = rand()%30 + 20;
+					qsum = rand()%30 + 21;
 					qsum += 33;
 #ifdef DEBUG
 printf("True\t%d\n",qsum);
@@ -529,7 +525,7 @@ printf("inserting %c on read %d at position %d,%d,%d\n",reads[i].str[k],i,k+1,j+
 					reads[i].str[k] = G[(int)((long int)3*rand()/RAND_MAX)];
 				} else { reads[i].str[k] = *(ref_s+reads[i].start+j); }
 				qualstr[k]='!';
-				qsum = rand()%14 + 6;
+				qsum = rand()%10 + 21;
 				qsum += 33;
 #ifdef DEBUG
 printf("False\t%d\n",qsum);
@@ -547,18 +543,11 @@ printf("Deleting %c on read %d at position %d,%d,%d\n",*(ref_s+reads[i].start+j)
 		}
 		reads[i].str[k] = '\0';
 		qualstr[k] = '\0';
-/*
-		int l = 0;
-		for(l=0;l<strlen(reads[i].str);l++) {
-			qualstr[l] = 'T';
-		}
-		qualstr[l] = '\0';
-*/
+
 		fprintf(fq_file, "@Start_POS:%d:%d\n", reads[i].start+1,reads_hap[i%100]);
 		fprintf(fq_file, "%s\n", reads[i].str);
 		fprintf(fq_file, "+\n");
 		fprintf(fq_file, "%s\n", qualstr);
-//		fprintf(log_file,"%d\t%d\n",startsi,reads_hap[i%100]);
 	} // end n_reads
 	for(i=0;i<n_reads;i++) {
 		free(reads[i].str);

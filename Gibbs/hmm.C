@@ -61,6 +61,87 @@ char GetPosAllele(int t, long pos)
 	return 'N';
 }
 
+void GibbsSampling(int snp_start, int snp_end, int T)
+{
+	int	i, j; 	/* state indices */
+	int	t;	/* time index */
+
+	double sum;	/* partial sum */
+	double logProb;
+	double bi1, aij, bjt1;
+
+        SNP **known_snp_list = new SNP*[100];
+        int *known_index = new int[200];
+	int reads_list_size = reads_list.size();
+
+	for(vector<SNP*>::iterator snp_it = snp_list.begin(); snp_it != snp_list.end(); snp_it++) {
+
+		if((*snp_it)->GetPos() < snp_start)
+			continue;
+		else if((*snp_it)->GetPos() > snp_end)
+			break;
+
+		int last_snp;
+		double norm;
+		for(int count=0; count<(*snp_it)->GetReadCount(); count++) {
+			int known_snp_count = 0, hap = 0;
+			long happos = 0;
+			double emission_list[3], haprob[3];
+			READ *pd = (*snp_it)->GetRead(count-1);
+			READ *rd = (*snp_it)->GetRead(count);
+			// REVISIT: Implement
+			if(rd->GetPos() <= happos)
+				continue;
+			GetAllSnps(known_snp_list, &known_snp_count, known_index, rd);
+			rd->AddKnownCount(known_snp_count);
+
+			for(j=1;j<=2;j++) {
+				cout << "Haplotype " << j << endl;
+				emission_list[j] = 0;
+
+				for(int count=0; count<known_snp_count; count++) {
+					double emission;
+                       	        	SNP *sp = known_snp_list[count];
+#ifdef DEBUG
+cout << sp->GetPos() << " " << sp->GetRef() << " " << sp->GetAlt() << " " << (*nd).GetAllele(known_index[count]);
+#endif
+					// REVISIT: Implement
+					emission = compute_full_emission(known_snp_list, count, known_index, j);
+					emission_list[j] += log(emission);
+				}
+#ifdef DEBUG
+cout << "Total Emission = " << emission_list[j] << endl;
+#endif
+	  		}
+			norm = emission_list[1] + emission_list[2];
+			if(norm>0.0) {
+				haprob[1] = emission_list[1] / norm;
+				haprob[2] = emission_list[2] / norm;
+			} else {
+				haprob[1] = 0.5;
+				haprob[2] = 0.5;
+			}
+#ifdef DEBUG
+cout << "Happrob[1] = " << haprob[1] << endl;
+cout << "Happrob[2] = " << haprob[2] << endl;
+#endif
+			hap = haprob[1] > haprob[2] ? 1 : haprob == haprob ? t%2+1 : 2;
+			double happrob = haprob[hap];
+			hap = (*pd).GetHap() == hap ? 1 : 2;
+			rd->assignHaplotype(hap, happrob);
+			happos = rd->GetPos();
+		}
+
+		last_snp = (known_snp_list[0])->GetPos();
+		last_snp = UpdateBaumWelchGenotypePosteriors((*snp_it)->GetPos(), last_snp-1);
+		while((*snp_it)->GetPos()<last_snp)
+			snp_it++;
+	}
+
+	delete [] known_index;
+	delete [] known_snp_list;
+}
+
 void NaiveBayes(int snp_start, int snp_end, int T)
 {
 	int	i, j; 	/* state indices */
@@ -136,8 +217,9 @@ cout << "Happrob[2] = " << haprob[2] << endl;
 	delete [] known_snp_list;
 }
 
-void UpdateBaumWelchGenotypePosteriors(long snp_start, long snp_end)
+int UpdateBaumWelchGenotypePosteriors(long snp_start, long snp_end)
 {
+	int last_pos = snp_start;
 	for(vector<SNP*>::iterator snp_it = (snp_list).begin(); snp_it != (snp_list).end(); snp_it++) {
 		long pos = (*snp_it)->GetPos();
 		if(pos<=snp_start)
@@ -187,9 +269,10 @@ cout << "Prior het prob for snp " << (*snp_it)->GetPos() << " = " << prior[1] <<
 cout << "Posterior het prob for snp " << (*snp_it)->GetPos() << " = " << post[1] << endl;
 #endif
     		(*snp_it)->add_posteriors(post);
-
+		last_pos = pos;
 		delete [] happrob;
 	}
+	return last_pos;
 }
 
 void FindSomaticMutations(long snp_start, long snp_end)
@@ -727,6 +810,20 @@ void genotypeProbability(vector<SNP*>::iterator snp_it, double probs[2])
 	probs[2] = pow(2.7182, log(probs[2])/read_count);
 }
 
+void GetAllSnps(SNP** known_snp_list, int *known_snp_count, int *known_index, READ *rd)
+{
+	int snp_count = rd->GetSnpCount();
+	int ct = 0;
+
+	while(ct < snp_count) {
+		known_snp_list[*known_snp_count] = rd->GetSnpList()[ct];
+		known_index[*known_snp_count] = ct;
+		known_snp_list[*known_snp_count]->IncrKnownOverlapCount();
+		(*known_snp_count)++;
+		ct++;
+	}
+}
+
 void GetSnpList(SNP** known_snp_list, int *known_snp_count, int *known_index, int t)
 {
 	READ *prev_read = reads_list[t-1];
@@ -914,7 +1011,6 @@ cout << "\t" << all1 << "\t" << all2;
 #ifdef DEBUG
 cout << "\t" << gen_lik[i] << " " << obs_lik[i] << " " << gen_lik[i] * obs_lik[i];
 #endif
-		// REVISIT: Normalize here alone?
 		prob += gen_lik[i] * obs_lik[i];
 	}
 	reads_snp_list[count]->addEmission(hap,prob);
@@ -923,5 +1019,138 @@ cout << "\t" << prob << "\t" << log(prob) << endl;
 #endif
 	//return gen_lik[1]*obs_lik[1];
 	return prob;
+}
+
+double compute_new_emission(SNP **reads_snp_list, int count, char all1, char all2, int *index, int hap)
+{
+	//double err_rate = errate;
+	double err_rate = 0.02;
+	double known_snp_rate = 0.1;
+	double novel_snp_rate = 0.001;
+	double gen_prior[3];
+	double snp_rate = novel_snp_rate;
+	double gen_lik[3] = {0.9, 0.01, 0.09};
+	double obs_lik[3] = {0.0, 0.0, 1.0};
+	double prob = 0.0;
+	double lik = 0.0;
+
+	char ref = reads_snp_list[count]->GetRef();
+	char alt = reads_snp_list[count]->GetAlt();
+	int pos = reads_snp_list[count]->GetPos();
+	int obt = (ref==all1) ? ((ref==all2) ? 1 : 2) : ((ref==all2) ? 3 : 4);
+	if(reads_snp_list[count]->GetKnown() == 1)
+		snp_rate = known_snp_rate;
+	gen_prior[0] = 1 - snp_rate - snp_rate*snp_rate;
+	gen_prior[1] = snp_rate;
+	gen_prior[2] = snp_rate*snp_rate;
+	double good = (1-err_rate)*(1-err_rate);
+	double bad = (1-err_rate)*err_rate;
+	double ugly = err_rate*err_rate;
+
+#ifdef DEBUG
+cout << "\t" << all1 << "\t" << all2;
+#endif
+	for(int j=0; j<3; j++) {
+		//lik += (reads_snp_list[count]->GetGenLik())[j] * gen_prior[j];
+		lik += (reads_snp_list[count]->GetPosteriors())[j] * gen_prior[j];
+	}
+
+	for(int i=0; i<3; i++) {
+		//gen_lik[i] = ((reads_snp_list[count]->GetGenLik())[i] * gen_prior[i])/lik;
+		gen_lik[i] = ((reads_snp_list[count]->GetPosteriors())[i] * gen_prior[i])/lik;
+
+		switch(i) {
+		case 0: // genotype = A/A
+			if(obt==1&&hap==1)
+				obs_lik[i] = good;
+			else if(obt==1&&hap==2)
+				obs_lik[i] = good;
+			else if(obt==2&&hap==1)
+				obs_lik[i] = bad;
+			else if(obt==2&&hap==2)
+				obs_lik[i] = bad;
+			else if(obt==3&&hap==1)
+				obs_lik[i] = bad;
+			else if(obt==3&&hap==2)
+				obs_lik[i] = bad;
+			else if(obt==4&&hap==1)
+				obs_lik[i] = ugly;
+			else if(obt==4&&hap==2)
+				obs_lik[i] = ugly;
+			else
+				cout << "Invalid observation and/or haplotype " << obt << ", " << hap << endl;
+//obs_lik[i] = 0;
+		break;
+		case 1: // genotype = A/B
+// #define DIVIDE
+			if(obt==1&&hap==1)
+				obs_lik[i] = good + ugly;
+			else if(obt==1&&hap==2)
+				obs_lik[i] = 2*bad;
+			else if(obt==2&&hap==1)
+				obs_lik[i] = 2*bad;
+			else if(obt==2&&hap==2)
+				obs_lik[i] = ugly + good;
+			else if(obt==3&&hap==1)
+				obs_lik[i] = 2*bad;
+			else if(obt==3&&hap==2)
+				obs_lik[i] = good + ugly;
+			else if(obt==4&&hap==1)
+				obs_lik[i] = ugly + good;
+			else if(obt==4&&hap==2)
+				obs_lik[i] = 2*bad;
+			else
+				cout << "Invalid observation and/or haplotype " << obt << ", " << hap << endl;
+#ifdef DIVIDE
+			obs_lik[i] /= 2;
+#endif
+		break;
+		case 2: // genotype = B/B
+			if(obt==1&&hap==1)
+				obs_lik[i] = ugly;
+			else if(obt==1&&hap==2)
+				obs_lik[i] = ugly;
+			else if(obt==2&&hap==1)
+				obs_lik[i] = bad;
+			else if(obt==2&&hap==2)
+				obs_lik[i] = bad;
+			else if(obt==3&&hap==1)
+				obs_lik[i] = bad;
+			else if(obt==3&&hap==2)
+				obs_lik[i] = bad;
+			else if(obt==4&&hap==1)
+				obs_lik[i] = good;
+			else if(obt==4&&hap==2)
+				obs_lik[i] = good;
+			else
+				cout << "Invalid observation and/or haplotype " << obt << ", " << hap << endl;
+		break;
+		}
+
+#ifdef DEBUG
+cout << "\t" << gen_lik[i] << " " << obs_lik[i] << " " << gen_lik[i] * obs_lik[i];
+#endif
+		prob += gen_lik[i] * obs_lik[i];
+	}
+	reads_snp_list[count]->addEmission(hap,prob);
+#ifdef DEBUG
+cout << "\t" << prob << "\t" << log(prob) << endl;
+#endif
+	//return gen_lik[1]*obs_lik[1];
+	return prob;
+}
+
+double compute_full_emission(SNP **reads_snp_list, int count, int *index, int hap)
+{
+	int rdct = reads_snp_list[count]->GetReadCount();
+	double emission = 0.0;
+
+	for(int i=0; i<rdct; i++) {
+		char all1 = reads_snp_list[count]->GetRead(rdct)->GetAllele(rdct);
+		char all2 = reads_snp_list[count]->GetRead(rdct+1)->GetAllele(rdct+1);
+
+		emission += log(compute_new_emission(reads_snp_list, count, all1, all2, index, hap));
+	}
+	return emission;
 }
 

@@ -27,14 +27,16 @@ using namespace std;
 #define MAX_READS 10000
 #define MAX_READ_LEN 4000
 #define FULL
-//#define DEBUG
+#define DEBUG
 //#define FULLDEBUG
 
 int region = 21;
-int coverage = 10;
-double errate = 0.02;
+int coverage = 30;
+double errate = 0.005;
 int EM=1;
+int INDEL_RANGE=11;
 int flag_iter = 1;
+long file_pos;
 
 vector<SNP*> snp_list;
 vector<READ*> reads_list;
@@ -112,6 +114,48 @@ int s_len(const char* seq)
 		return 0;
 }
 
+int rev_h_len(const char *seq)
+{
+	int i = strlen(seq)-1;
+	int len = 0;
+	int j = 1;
+
+	if(seq[i] != 'H')
+		return 0;
+	else {
+		i--;
+		while(seq[i]>='0'&&seq[i]<='9') {
+			len = 10*j*(seq[i]-'0') + len;
+			i--;
+			j *= 10;
+		}
+		if(len==0) {
+			cout << "Invalid CIGAR. Ends with " << seq[strlen(seq)-1] << endl;
+			exit(1);
+		}
+		return len/10;
+	}
+}
+
+int h_len(const char* seq)
+{
+	int i = 0;
+	int len = 0;
+
+	while(seq[i]>='0'&&seq[i]<='9') {
+		len = 10*len + seq[i]-'0';
+		i++;
+	}
+	if(len==0) {
+		cout << "Invalid cigar. Beginning with " << seq[0] << endl;
+		exit(1);
+	}
+	if(seq[i]=='H')
+		return len;
+	else
+		return 0;
+}
+
 int get_deletion_count(string cigar, int limit)
 {
 	//char *c_cigar = new char[cigar.length()+1];
@@ -124,6 +168,7 @@ int get_deletion_count(string cigar, int limit)
 	int mlen = 0;
 	int ilen = 0;
 	int slen = 0;
+	int hlen = 0;
 	int dmlim = 0;
 
 	// slen serves no great purpose. Not utilized here.
@@ -135,6 +180,104 @@ int get_deletion_count(string cigar, int limit)
 			len = 0;
 #ifdef FULLDEBUG
 if(limit<10000) cout << "Slen = " << slen << endl;
+#endif
+		} else if(c_cigar[it]=='H') {
+			hlen += len;
+			len = 0;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Slen = " << hlen << endl;
+#endif
+		} else if (c_cigar[it]=='M') {
+			mlen += len;
+			len = 0;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Mlen = " << mlen << endl;
+#endif
+			if(mlen+dlen==limit) {
+				dmlim = 0;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Limit= " << limit << endl << "Mlen+Dlen = " << mlen+dlen << endl;
+#endif
+				break;
+			} else if(mlen+dlen > limit) {
+				dmlim = 0;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Limit= " << limit << endl << "Mlen+Dlen = " << mlen+dlen << endl;
+#endif
+				break;
+			}
+		} else if(c_cigar[it]=='D') {
+			dlen += len;
+			len = 0;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Dlen = " << dlen << endl;
+#endif
+			if(mlen+dlen==limit) {
+				dmlim = 1;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Limit " << limit << endl << "Dlen+Mlen = " << dlen+mlen << endl;
+#endif
+				break;
+			} else if(mlen+dlen > limit) {
+				dmlim = 1;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Limit " << limit << endl << "Dlen+Mlen = " << dlen+mlen << endl;
+#endif
+				break;
+			}
+		} else if(c_cigar[it]=='I') {
+			ilen += len;
+			len = 0;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Ilen = " << ilen << endl;
+#endif
+		} else {
+			cout << "Invalid character in cigar string " << c_cigar[it] << endl;
+		}
+		it++;
+	}
+
+//	delete [] c_cigar;
+
+#ifdef FULLDEBUG
+cout << "dmlim = " << dmlim << endl;
+#endif
+	if(dmlim)
+		return 9999;
+	else
+		return dlen - ilen;
+}
+
+int get_delet_count(string cigar, int limit)
+{
+	//char *c_cigar = new char[cigar.length()+1];
+	char c_cigar[1000];
+	strcpy(c_cigar,cigar.c_str());
+	c_cigar[cigar.length()] = '\0';
+	int it = 0;
+	int len = 0;
+	int dlen = 0;
+	int mlen = 0;
+	int ilen = 0;
+	int slen = 0;
+	int hlen = 0;
+	int dmlim = 0;
+
+	// slen serves no great purpose. Not utilized here.
+	while(it<strlen(c_cigar)) {
+		if(c_cigar[it]>='0'&&c_cigar[it]<='9') {
+			len = len*10 + c_cigar[it] - '0';
+		} else if(c_cigar[it]=='S') {
+			slen += len;
+			len = 0;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Slen = " << slen << endl;
+#endif
+		} else if(c_cigar[it]=='H') {
+			hlen += len;
+			len = 0;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Slen = " << hlen << endl;
 #endif
 		} else if (c_cigar[it]=='M') {
 			mlen += len;
@@ -188,9 +331,157 @@ if(limit<10000) cout << "Ilen = " << ilen << endl;
 
 //	delete [] c_cigar;
 	if(dmlim)
-		return -1;
+		return dlen;
 	else
-		return dlen - ilen;
+		return dlen;
+}
+
+int get_insert_count(string cigar, int limit)
+{
+	//char *c_cigar = new char[cigar.length()+1];
+	char c_cigar[1000];
+	strcpy(c_cigar,cigar.c_str());
+	c_cigar[cigar.length()] = '\0';
+	int it = 0;
+	int len = 0;
+	int dlen = 0;
+	int mlen = 0;
+	int ilen = 0;
+	int slen = 0;
+	int hlen = 0;
+	int dmlim = 0;
+
+	// slen serves no great purpose. Not utilized here.
+	while(it<strlen(c_cigar)) {
+		if(c_cigar[it]>='0'&&c_cigar[it]<='9') {
+			len = len*10 + c_cigar[it] - '0';
+		} else if(c_cigar[it]=='S') {
+			slen += len;
+			len = 0;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Slen = " << slen << endl;
+#endif
+		} else if(c_cigar[it]=='H') {
+			hlen += len;
+			len = 0;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Slen = " << hlen << endl;
+#endif
+		} else if (c_cigar[it]=='M') {
+			mlen += len;
+			len = 0;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Mlen = " << mlen << endl;
+#endif
+			if(mlen+dlen-ilen==limit) {
+				dmlim = 0;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Limit= " << limit << endl << "Mlen+Dlen = " << mlen+dlen << endl;
+#endif
+				break;
+			} else if(mlen+dlen-ilen > limit) {
+				dmlim = 0;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Limit= " << limit << endl << "Mlen+Dlen = " << mlen+dlen << endl;
+#endif
+				break;
+			}
+		} else if(c_cigar[it]=='D') {
+			dlen += len;
+			len = 0;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Dlen = " << dlen << endl;
+#endif
+			if(mlen+dlen-ilen==limit) {
+				dmlim = 1;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Limit " << limit << endl << "Dlen+Mlen = " << dlen+mlen << endl;
+#endif
+				break;
+			} else if(mlen+dlen-ilen > limit) {
+				dmlim = 1;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Limit " << limit << endl << "Dlen+Mlen = " << dlen+mlen << endl;
+#endif
+				break;
+			}
+		} else if(c_cigar[it]=='I') {
+			ilen += len;
+			len = 0;
+#ifdef FULLDEBUG
+if(limit<10000) cout << "Ilen = " << ilen << endl;
+#endif
+		} else {
+			cout << "Invalid character in cigar string " << c_cigar[it] << endl;
+		}
+		it++;
+	}
+
+//	delete [] c_cigar;
+	if(dmlim)
+		return ilen;
+	else
+		return ilen;
+}
+
+int get_indel_count(string cigar, int end, int start, int *inend, int *instart, int *delend, int *delstart)
+{
+	//char *c_cigar = new char[cigar.length()+1];
+	char c_cigar[1000];
+	strcpy(c_cigar,cigar.c_str());
+	c_cigar[cigar.length()] = '\0';
+	int it = 0;
+	int len = 0;
+	int dlen = 0;
+	int mlen = 0;
+	int ilen = 0;
+	int slen = 0;
+	int hlen = 0;
+	int dmlim = 0;
+
+	// slen serves no great purpose. Not utilized here.
+	while(it<strlen(c_cigar)) {
+		if(c_cigar[it]>='0'&&c_cigar[it]<='9') {
+			len = len*10 + c_cigar[it] - '0';
+		} else if(c_cigar[it]=='S') {
+			slen += len;
+			len = 0;
+		} else if(c_cigar[it]=='H') {
+			hlen += len;
+			len = 0;
+		} else if (c_cigar[it]=='M') {
+			mlen += len;
+			len = 0;
+			if(mlen+dlen-ilen>=start) {
+				*instart = ilen; *delstart = dlen;
+			}
+			if(mlen+dlen-ilen>=end) {
+				*inend = ilen; *delend = dlen;
+				break;
+			}
+		} else if(c_cigar[it]=='D') {
+			dlen += len;
+			if(mlen+dlen-ilen==start) {
+				*delstart = dlen;
+			} else if(mlen+dlen-ilen>start) {
+				*delstart = dlen -(mlen-ilen+dlen-start);
+			}
+			if(mlen+dlen-ilen==end) {
+				*delend = dlen;
+			} else if(mlen+dlen-ilen>end) {
+				*delend = dlen -(mlen-ilen+dlen-end);
+			}
+			len = 0;
+		} else if(c_cigar[it]=='I') {
+			ilen += len;
+			len = 0;
+		} else {
+			cout << "Invalid character in cigar string " << c_cigar[it] << endl;
+		}
+		it++;
+	}
+
+	return ilen;
 }
 
 int get_read_span(const char *file_name)
@@ -237,6 +528,7 @@ int get_read_span(const char *file_name)
 			span_iter++;
 			read_info[span_iter].start = atol(read_line[3].c_str());
 		}
+		cout << "Read " << atol(read_line[3].c_str()) << endl;
 	}
 	fclose(file);
 }
@@ -257,14 +549,16 @@ void read_known_snp_file(const char *file)
 		if(feof(snp_file))
 			break;
 		line = str;
-		vector<string> snp_line = split(line, ' ',0);
+		vector<string> snp_line = split(line, '\t',0);
 
 		// Consider hets only. Others are not useful for haplotype calling
-		if(snp_line[4]==snp_line[5])
+		//if(snp_line[4]==snp_line[5])
+		if(snp_line[3]==snp_line[4])
 			continue;
-		string snpit = snp_line[1] + snp_line[4] + snp_line[5] + snp_line[8];
+		string snpit = snp_line[1] + snp_line[3] + snp_line[4] + snp_line[5];
 		known_snps.insert(known_snps.end(),snpit);
 	}
+	fclose(snp_file);
 }
 
 void read_known_som_file(const char *file)
@@ -285,13 +579,16 @@ void read_known_som_file(const char *file)
 		pos = atol(str);
 
 		known_soms.insert(known_soms.end(), pos);
+		cout << "Read mutation " << pos << endl;
 	}
 	std::sort(known_soms.begin(), known_soms.end());
+	fclose(som_file);
 }
 
 void read_snp_file(FILE *snp_file, long snp_end)
 {
 	string line;
+	//fseek(snp_file, file_pos, SEEK_SET);
 
 	vector<long int>::iterator som_it;
 	vector<string>::iterator vec_start = known_snps.begin();
@@ -299,6 +596,7 @@ void read_snp_file(FILE *snp_file, long snp_end)
 		char str[1000];
 		fpos_t prev_pos;
 		fgetpos(snp_file,&prev_pos);
+		//file_pos = ftell(snp_file);
 		fgets(str,sizeof(str),snp_file);
 		str[strlen(str)-1] = '\0';
 		if(feof(snp_file))
@@ -324,14 +622,21 @@ void read_snp_file(FILE *snp_file, long snp_end)
 			// known = 0(error), 1(known), 2(novel), 3(null ref) - discarding value 3
 			int known = 0, a1 = 0, a2 = 0, som = 0;
 			for(vector<string>::iterator known_snpit = vec_start; known_snpit != known_snps.end(); known_snpit++) {
-				long int full_info = atol((*known_snpit).c_str());
-				if( full_info/1000 > pos) {
+				//long int full_info = atol((*known_snpit).c_str());
+				//if( full_info/1000 > pos) {
+				int stlen = (*known_snpit).length();
+				string subs = (*known_snpit).substr(0,stlen-3);
+				string known_s = (*known_snpit).substr(stlen-1,1);
+				long int pos_s = atol(subs.c_str());
+				if(pos_s > pos) {
 					break;
 				}
-				if(full_info/1000 == pos) {
-					known = full_info%10 == 0 ? 2 : 1;
-					a1 = (full_info/10)%10;
-					a2 = (full_info/100)%10;
+				//if(full_info/1000 == pos) {
+				//	known = full_info%10 == 0 ? 2 : 1;
+				if(pos_s==pos) {
+					known = atol(known_s.c_str())==0 ? 1 : 2;
+					//a1 = (full_info/10)%10;
+					//a2 = (full_info/100)%10;
 					vec_start = known_snpit;
 					break;
 				}
@@ -341,13 +646,14 @@ void read_snp_file(FILE *snp_file, long snp_end)
 			som = (som_it==known_soms.end()) ? 0 : 1;
 			SNP *snp = new SNP(vcf_line[0], pos, vcf_line[3].c_str()[0], vcf_line[4].c_str()[0], gl3, known, som, atof(vcf_line[5].c_str()));
 			snp_list.insert(snp_list.end(), snp);
-#ifdef FULLDEBUG
+#ifdef DEBUG
 cout << "Insert.. " << pos << endl;
 #endif
 		//}
 		}
 	}
 	cout << "SNP MAP size = " << snp_list.size() << endl;
+	//fclose(snp_file);
 }
 
 int read_sam_files(FILE *fq_file)
@@ -366,26 +672,31 @@ int read_sam_files(FILE *fq_file)
 		char star = str[0];
 
 		if(star != '@') { // for each new read in the file
+			//iter++;
 			line = str;
 			vector<string> read_line = split(line, '\t', 0);
 			string hapl_s = read_line[0];
 			vector<string> hapl_v = split(hapl_s,':',0);
 			int hapl_i = atoi(hapl_v[2].c_str());
 			long start = atol(read_line[3].c_str());
-#ifdef DEBUG
+			int rqual = atol(read_line[4].c_str());
+			if(rqual<=0)
+				continue;
+#ifdef FULLDEBUG
 cout << "Read: " << start << " has haplotype: " << hapl_i << endl;
 #endif
 			string cigar = read_line[5];
 			int slen = s_len(cigar.c_str());
 			int rev_slen = rev_s_len(cigar.c_str());
+			int hlen = h_len(cigar.c_str());
+			int rev_hlen = rev_h_len(cigar.c_str());
 			int Ndels = get_deletion_count(cigar,10000);
-if(Ndels==-1) {
-	cout <<"Unexpected -1 for get_deletion_count" << endl;
-}
 			int length = (int)(read_line[9].length()) - slen - rev_slen + Ndels;
 #ifdef FULLDEBUG
-cout << slen << "\t" << rev_slen << "\t" << Ndels << "\t" << endl;
+cout << slen << "\t" << rev_slen << "\t" << hlen << "\t" << rev_hlen << "\t" << Ndels << "\t" << endl;
 #endif
+			if(10*(slen+rev_slen+hlen+rev_hlen)>=(3*(read_line[9].length()+hlen+rev_hlen)))
+				continue;
 #ifdef FULLDEBUG
 cout << "Start " << start << ", Length = " << length << endl;
 #endif
@@ -398,30 +709,46 @@ cout << start << "\t" << (*snp_begin)->GetPos() << endl;
 				long snp_pos = (*snp_it)->GetPos();
 				if(snp_pos >= start) {
 					if(snp_pos <= start+length-1) {
-						int snp_exists = 0;
-						int type = 2;
+						bool inp, delp;
+						int snp_exists = 0, type = 2;
+						int indel_start, indel_end, inend, instart, delend, delstart;
 						char snp_ref = (*snp_it)->GetRef();
 						char alt_ref = (*snp_it)->GetAlt();
 #ifdef FULLDEBUG
 cout << snp_pos << "\t" << start << endl;
 #endif
 						int ndels = get_deletion_count(cigar,snp_pos-start+1);
-#ifdef FULLDEBUG
-cout << "Ndels = " << ndels << endl;
-#endif
-						if(ndels==-1)
+						if(ndels==9999)
 							continue;
 
-						char allele = read_line[9][snp_pos - start + slen - ndels];
-						int qual = read_line[10][snp_pos - start + slen - ndels];
+						indel_start = snp_pos-start+1-(INDEL_RANGE-1)/2;
+						indel_end = snp_pos-start+1+(INDEL_RANGE-1)/2;
+						//get_indel_count(cigar,indel_end,indel_start,&inend,&instart,&delend,&delstart);
+						inend = get_insert_count(cigar,indel_end);
+						instart = get_insert_count(cigar,indel_start);
+						delend = get_delet_count(cigar,indel_end);
+						delstart = get_delet_count(cigar,indel_start);
+#ifdef FULLDEBUG
+cout << "Ndels=" << ndels << " indel_start=" << indel_start << " indel_end=" << indel_end << " inend=" << inend << " instart=" << instart << " delend=" << delend << " delstart=" << delstart << endl;
+#endif
+						//char allele = read_line[9][snp_pos - start + slen + hlen - ndels];
+						//int qual = read_line[10][snp_pos - start + slen + hlen - ndels];
+						char allele = read_line[9][snp_pos + slen - start - ndels];
+						int qual = read_line[10][snp_pos + slen - start - ndels];
+						inp = inend>instart ? 1 : 0;
+						delp = delend>delstart ? 1 : 0;
 
 						if(allele==snp_ref)
 							type = 0;
 						else if(allele==alt_ref)
 							type = 1;
 
-						read->addsnp(*snp_it, allele, qual);
-						(*snp_it)->append(type,read);
+						//if(qual>=3) {
+							read->addsnp(*snp_it,allele,qual,inp,delp);
+							(*snp_it)->append(type,read);
+						//} else {
+						//	cout << "Snp " << (*snp_it)->GetPos() << " not added to read " << read->GetPos() << " as qual = " << qual << endl;
+						//}
 					} else {
 						break;
 					}
@@ -452,10 +779,9 @@ double runNB(ofstream &stateOutput, ofstream &distanceOutput, double initProb, l
 	for (i=1;i<=nbDimensions;i++){
 		listNbSymbols[i] = nbSymbols;
 	}
-#ifdef DEBUG
-cout << "Nbsymbols = " << nbSymbols << endl;
-#endif
 	NaiveBayes(snp_start,snp_end, nbSymbols);
+	//GibbsSampling(snp_start,snp_end, nbSymbols);
+	FindSomaticMutations(snp_start, snp_end);
 
 	for(vector<SNP*>::iterator snp_it = snp_list.begin(); snp_it != snp_list.end(); snp_it++) { // check for snps in vector
 		long pos = (*snp_it)->GetPos();
@@ -486,7 +812,7 @@ cout << "Nbsymbols = " << nbSymbols << endl;
 		novel_prior[1] = 0.001;
 		novel_prior[2] = novel_prior[1]*novel_prior[1];
 		novel_prior[0] = 1 - novel_prior[1] - novel_prior[2];
-
+/*
 		if((*snp_it)->GetKnown()==1) {
 			prior[0] = known_prior[0];
 			prior[1] = known_prior[1];
@@ -496,6 +822,7 @@ cout << "Nbsymbols = " << nbSymbols << endl;
 			prior[1] = novel_prior[1];
 			prior[2] = novel_prior[2];
 		}
+*/
 		prior[0] = 1;
 		prior[1] = 1;
 		prior[2] = 1;
@@ -525,7 +852,7 @@ cout << "Nbsymbols = " << nbSymbols << endl;
 		stateOutput << (*snp_it)->GetChr() << "\t" << (*snp_it)->GetPos() << "\t" << (*snp_it)->GetKnown() << "\t" << gp << "\t" << hmm_post[0] << "\t" << hmm_post[1] << "\t" << hmm_post[2] << "\t" << sam_post[0] << "\t" << sam_post[1] << "\t" << sam_post[2] << "\t" << sam_post[1]/sam_post[0] << "\t" << hmm_post[1]/hmm_post[0] << "\t" << (*snp_it)->GetSom() << "\t" << som_post[1] << endl;
 	}
 	for(vector<READ*>::iterator read_it = reads_list.begin()+reads_list.size()-(long)nbSymbols+1; read_it != reads_list.end(); read_it++) {
-		distanceOutput << (*read_it)->GetHap() << "\t" << (*read_it)->GetPos() << "\t" << (*read_it)->GetSnpCount() << "\t" << (*read_it)->GetKnownCount() << endl;
+		distanceOutput << (*read_it)->GetHap() << "\t" << (*read_it)->GetPos() << "\t" << (*read_it)->GetSnpCount() << "\t" << (*read_it)->GetKnownCount() << "\t" << (*read_it)->GetHapProb() << endl;
 	}
 
 	int highHap = (*reads_list.begin())->GetHap();
@@ -551,7 +878,9 @@ cout << (*snp_it)->GetPos() << endl;
 		} else if((*snp_it)->GetPos() >= snp_end) {
 			break;
 		} else {
+#ifdef FULLDEBUG
 			cout << "Deleting snp object: " << (*snp_it)->GetPos() << endl;
+#endif
 			delete (*snp_it);
 			snp_list.erase(snp_list.begin());
 		}
@@ -562,13 +891,17 @@ cout << (*snp_it)->GetPos() << endl;
 cout << (*read_it)->GetPos() << endl;
 #endif
 		if((*read_it)->GetPos() < snp_start) {
+#ifdef FULLDEBUG
 			cout << "Deleting read object: " << (*read_it)->GetPos() << endl;
+#endif
 			delete (*read_it);
 			reads_list.erase(reads_list.begin());
 		} else if((*read_it)->GetPos()+(*read_it)->GetLen() >= snp_end) {
 			break;
 		} else {
+#ifdef FULLDEBUG
 			cout << "Deleting read object: " << (*read_it)->GetPos() << endl;
+#endif
 			delete (*read_it);
 			reads_list.erase(reads_list.begin());
 		}
@@ -582,11 +915,16 @@ int main(int argc, char **argv)
 cout << argc << endl;
 
 #ifdef FULL
-	const char *snpfile="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/vcfs/0.02_0.02_10_4000_21.vcf";
-	const char *knownsnps="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/snp_21.list";
-	const char *knownsoms="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/som_0.02_0.02_10_4000_21.list";
-	const char *file_base = "/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/reads/0.02_0.02_10_4000_21.sorted";
-	const char *base_name="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/HMM/output/0.02_0.02_10_4000_1_21";
+	//const char *snpfile="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/vcfs/0.02_0.02_10_4000_21.vcf";
+	//const char *knownsnps="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/snp_21.list";
+	//const char *knownsoms="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/som_0.02_0.02_10_4000_21.list";
+	//const char *file_base = "/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/reads/0.02_0.02_10_4000_21.sorted";
+	//const char *base_name="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/HMM/output/0.02_0.02_10_4000_1_21";
+	const char *snpfile="../vcfs/0.005_0.005_10_500_15_21.vcf";
+	const char *knownsnps="../snps/snp_21.list";
+	const char *knownsoms="../snps/som_0.005_0.005_10_500_15_21.list";
+	const char *file_base = "../reads/0.005_0.005_10_500_15_21.sorted";
+	const char *base_name="../output/0.005_0.005_10_500_15_21";
 	char knownsnpfile[200];
 	const char *knownsomfile;
 	const char *base;
@@ -595,29 +933,38 @@ cout << argc << endl;
 		file_base=argv[1];
 		snpfile=argv[2];
 		region=atoi(argv[3]);
-		sprintf(knownsnpfile,"/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/snp_%d.list",region);
+		//sprintf(knownsnpfile,"/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/snp_%d.list",region);
+		sprintf(knownsnpfile,"../snps/snp_%d.list",region);
 		knownsomfile=argv[4];
 		base=argv[5];
 		coverage=atol(argv[6]);
-		errate = atof(argv[7]);
+		errate = 2.0*atof(argv[7]);
 	} else {
 		strcpy(knownsnpfile,knownsnps);
 		knownsomfile=knownsoms;
 		base=base_name;
 	}
 #else
-	const char *snpfile="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/short_read_1_21.1.1.vcf";
-	const char *file_base = "/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/short_read_1.sorted";
-	const char *knownsnpfile="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/snp_21.list";
-	const char *knownsomfile="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/som_0.02_0.02_10_4000_21.list";
-	const char *base="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/HMM/output/output_short_1";
+	//const char *snpfile="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/short_read_1_21.1.1.vcf";
+	//const char *file_base = "/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/short_read_1.sorted";
+	//const char *knownsnpfile="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/snp_21.list";
+	//const char *knownsomfile="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/som_0.02_0.02_10_4000_21.list";
+	//const char *base="/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/HMM/output/output_short_1";
+	const char *snpfile="short_read_1_21.1.1.vcf";
+	const char *file_base = "short_read_1.sorted";
+	const char *knownsnpfile="../snps/snp_21.list";
+	const char *knownsomfile="../snps/som_0.02_0.02_10_4000_21.list";
+	const char *base="../output/output_short_1";
 #endif
 
 	char file_name[200];
 	sprintf(file_name, "%s%s", file_base, ext);
 
+cout << "Reading known snp file" << endl;
 	read_known_snp_file(knownsnpfile);
+cout << "Reading span file" << endl;
 	int span = get_read_span(file_name);
+cout << "Reading known som file" << endl;
 	read_known_som_file(knownsomfile);
 
 	char stateOutputName[256];
@@ -640,13 +987,13 @@ cout << argc << endl;
 	}
 	ofstream stateOutput(stateOutputName);
 	ofstream distanceOutput(distanceOutputName);
-
+cout << "Entering loop" << endl;
 	while(iter<span) {
-	//while(iter<10) {
+	//while(iter<1) {
 		read_snp_file(snp_file, read_info[iter].end + MAX_READ_LEN); // Reads specified range or from pos 1
 		int read_ct = read_sam_files(fq_file); // Reads 10000 at a time
 		if(iter==0) {
-			distanceOutput << "1\t" << reads_list[0]->GetPos() << "\t" << reads_list[0]->GetSnpCount() << "\t" << reads_list[0]->GetKnownCount() << endl;
+			distanceOutput << "1\t" << reads_list[0]->GetPos() << "\t" << reads_list[0]->GetSnpCount() << "\t" << reads_list[0]->GetKnownCount() << "\t" << reads_list[0]->GetHapProb() << endl;
 		} else {
 			read_ct++;
 		}
@@ -659,10 +1006,10 @@ cout << argc << endl;
 		iter++;
 	}
 
-		distanceOutput.close();
-		stateOutput.close();
-		fclose(fq_file);
-		fclose(snp_file);
+	distanceOutput.close();
+	stateOutput.close();
+	fclose(fq_file);
+	fclose(snp_file);
 	return 0;
 }
 

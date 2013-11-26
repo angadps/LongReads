@@ -49,8 +49,6 @@ private:
   int altcount;
   int errcount;
   int count;
-  int posterior_count;
-  int genotype;
   int overlap_count;
   int known_overlap_count;
   long position;

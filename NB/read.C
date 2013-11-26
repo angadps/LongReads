@@ -16,15 +16,20 @@ READ::READ(void)
 	snp_count = -1;
 	known_count = 0;
 	hap = 0;
+	discordance = 0;
 	hprob = 1.0;
 	snps = new SNP*[4000];
 	alleles = new char[4000];
 	qualstring = new int[4000];
+	inr = new bool[4000];
+	delr = new bool[4000];
 cout << "Invoking plain READ" << endl;
 }
 
 READ::~READ()
 {
+	delete [] inr;
+	delete [] delr;
 	delete [] qualstring;
 	delete [] alleles;
 	delete [] snps;
@@ -51,21 +56,26 @@ READ::READ(long st, int len, int hapl_i)
 	snp_count = -1;
 	known_count = 0;
 	hap = hapl_i;
+	discordance = 0;
 	hprob = 0.5;
 	start = st;
 	snps = new SNP*[4000];
 	alleles = new char[4000];
 	qualstring = new int[4000];
+	inr = new bool[4000];
+	delr = new bool[4000];
 }
 
-void READ::addsnp(SNP *snp, char allele, int qual)
+void READ::addsnp(SNP *snp, char allele, int qual, bool inp, bool delp)
 {
 	snps[++snp_count] = snp;
 	alleles[snp_count] = allele;
 	qualstring[snp_count] = qual;
+	inr[snp_count] = inp;
+	delr[snp_count] = delp;
 }
 
-void READ::assignHaplotype(int haplotype, double prob)
+void READ::assignHaplotype(int haplotype, double prob, int flag)
 {
 	if(haplotype!=1&&haplotype!=2) {
 		cout << "Assigning incorrect haplotype value " << haplotype << endl;
@@ -74,6 +84,7 @@ void READ::assignHaplotype(int haplotype, double prob)
 		cout << "Assigning incorrect haplotype probability " << prob << " to haplotype " << haplotype << endl;
 	}
 	hap = haplotype;
+	discordance = flag;
 	hprob = prob;
 }
 
@@ -90,6 +101,11 @@ int READ::GetHap(void)
 double READ::GetHapProb(void)
 {
 	return hprob;
+}
+
+int READ::GetDiscordance(void)
+{
+	return discordance;
 }
 
 long READ::GetPos(void)
@@ -125,6 +141,16 @@ int READ::GetKnownCount()
 char READ::GetAllele(int pos)
 {
 	return alleles[pos];
+}
+
+bool READ::GetProximalInsert(int pos)
+{
+	return inr[pos];
+}
+
+bool READ::GetProximalDelete(int pos)
+{
+	return delr[pos];
 }
 
 /* Does not work here because of declaration issues

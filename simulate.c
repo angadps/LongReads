@@ -8,15 +8,16 @@
 #include<string.h>
 
 #define FULL
-//#define DEBUG
+#define DEBUG
 
 #define NUM_SOM 10000
-#define SOM_MIN 40
-#define SOM_RANGE 20
+#define SOM_MIN 10
+#define SOM_RANGE 40
 
 int reads_hap[111] = {1,1,1,2,2,2,1,2,1,2,1,1,2,2,1,2,1,2,2,1,2,1,1,2,1,2,1,2,1,2,2,1,2,1,1,1,1,2,2,2,1,2,1,2,1,1,2,2,1,2,1,2,2,1,2,1,1,2,1,2,1,2,1,2,2,1,2,1,1,1,1,2,2,2,1,2,1,2,1,1,2,2,1,2,1,2,2,1,2,1,1,2,1,2,1,2,1,2,2,1};
 //long int nbp[23] = {0, 24724971, 24295114, 19950182, 19127306, 18085786, 17089999, 15882142, 14627482, 14027325, 13537473, 13445238, 13234953, 11414298, 10636858, 10033891, 8882725, 7877474, 7611715, 6381165, 6243596, 4694432, 4969143};
-long int nbp[23] = {5000000, 247249719, 242951149, 199501827, 191273063, 180857866, 170899992, 158821424, 146274826, 140273252, 135374737, 134452384, 132349534, 114142980, 106368585, 100338915, 88827254, 78774742, 76117153, 63811651, 62435964, 46944323, 49691432};
+//long int nbp[23] = {5000000, 247249719, 242951149, 199501827, 191273063, 180857866, 170899992, 158821424, 146274826, 140273252, 135374737, 134452384, 132349534, 114142980, 106368585, 100338915, 88827254, 78774742, 76117153, 63811651, 62435964, 46944323, 49691432};
+long int nbp[23] = {5000000,249250621,243199373,198022430,191154276,180915260,171115067,159138663,146364022,141213431,135534747,135006516,133851895,115169878,107349540,102531392,90354753,81195210,78077248,59128983,63025520,48129895,51304566};
 
 struct snp_struct {
 	int position;
@@ -45,15 +46,16 @@ struct som_struct {
 
 // By default, it will run only for chr21 if FULL is defined, or a small portion of it if FULL is not defined.
 #ifdef FULL
-struct snp_struct snps[300000];
-struct indel_struct indels[35000];
+struct snp_struct snps[400000];
+struct indel_struct indels[40000];
 struct som_struct sites[1000];
-long int N_BP = 46944323; // chr21
-int reads_max = 140000;
+//long int N_BP = 46944323; // chr21
+long int N_BP = 48129895; // chr21
+int reads_max = 150000;
 int region = 21;
 #else
-struct snp_struct snps[300000];
-struct indel_struct indels[35000];
+struct snp_struct snps[400000];
+struct indel_struct indels[40000];
 struct som_struct site[1000];
 long int N_BP = 2000000;
 int reads_max = 10000;
@@ -73,13 +75,15 @@ char C[3] = "GAT";
 char G[3] = "ATC";
 
 int coverage;
-int def_coverage = 10;
+int prevalence = 25;
+int def_coverage = 30;
 int read_len = 4000;
 int max_ref_len = 250000000;
 char *snp_file, *indel_file, *som_file;
 FILE *fq_file, *log_file;
 const char *file_base = "short_read_1";
-const char *ref_file = "/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/reference/bcm_hg18.fasta";
+//const char *ref_file = "/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/reference/bcm_hg18.fasta";
+const char *ref_file = "reference/hg19.fasta";
 
 int read_cmp(const void *r1, const void *r2)
 {
@@ -103,7 +107,7 @@ printf("RAND_MAX = %ld\n", RAND_MAX);
 	// override parameters
 	if(argc>1) {
 		int param = 1;
-		int snp_ck = 0, err_ck = 0, len_ck = 0, cov_ck = 0, ref_ck = 0, snf_ck = 0, ind_ck = 0, som_ck = 0, cel_ck = 0, out_ck = 0, reg_ck = 0;
+		int snp_ck = 0, err_ck = 0, len_ck = 0, cov_ck = 0, ref_ck = 0, snf_ck = 0, ind_ck = 0, som_ck = 0, cel_ck = 0, out_ck = 0, reg_ck = 0, prev_ck = 0;
 		for(param=1;param<argc;param++) {
 			char *token[2];
 			token[0] = strtok(argv[param], "=");
@@ -186,6 +190,13 @@ printf("RAND_MAX = %ld\n", RAND_MAX);
 						reg_ck++;
 						region = atoi((const char *)token[1]);
 					}
+				} else if(strcmp(token[0],"-freq")==0) {
+					if(prev_ck>0) {
+						printf("Duplicate parameter %s=%s, ignoring..\n", token[0],token[1]);
+					} else {
+						prev_ck++;
+						prevalence = atoi((const char *)token[1]);
+					}
 				} else {
 					printf("Invalid parameter %s=%s. Ignoring..\n", token[0],token[1]);
 				}
@@ -219,9 +230,8 @@ void simulate(int chrnum)
 	long int i=0;
 	N_BP = nbp[chrnum];
 	int som_ct = (NUM_SOM * N_BP) / 3000000000;
-	sprintf(snp_file, "/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/snp_%d.list",chrnum);
-	sprintf(indel_file, "/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/indel_%d.list",chrnum);
-	//sprintf(som_file, "/ifs/scratch/c2b2/ys_lab/aps2157/Haplotype/snps/som_%0.2f_%0.2f_%d_%d_%d.list",snp_rate,err_rate,coverage,read_len,chrnum);
+	sprintf(snp_file, "snps/snp_%d.list",chrnum);
+	sprintf(indel_file, "snps/indel_%d.list",chrnum);
 	long int n_reads = (nbp[chrnum] * coverage)/read_len;
 //n_reads = 50000;
 	struct read_struct *reads = (struct read_struct*)malloc(sizeof(struct read_struct)*n_reads);
@@ -278,14 +288,14 @@ void simulate(int chrnum)
 		fgets(line,sizeof(line),snp_f);
 		if(feof(snp_f))
 			break;
-		strtok(line," ");
-		pos = atoi(strtok(NULL," "));
-		strtok(NULL," ");
-		strtok(NULL," ");
-		strtok(NULL," ");
-		strtok(NULL," ");
-		ref = strtok(NULL," ")[0];
-		alt = strtok(NULL," ")[0];
+		strtok(line,"\t");
+		pos = atoi(strtok(NULL,"\t"));
+		strtok(NULL,"\t");
+		//strtok(NULL," ");
+		//strtok(NULL," ");
+		//strtok(NULL," ");
+		ref = strtok(NULL,"\t")[0];
+		alt = strtok(NULL,"\t")[0];
 
 		// Consider hets only. Everything else is useless for haplotype calling
 		if(ref==alt)
@@ -299,7 +309,7 @@ void simulate(int chrnum)
 
 	// Read indel file here
 	FILE *indel_f = fopen(indel_file,"rt");
-	if(indel_f == NULL) { printf("Can't open snp file \"%s\"\n", indel_f); exit(1); }
+	if(indel_f == NULL) { printf("Can't open indel file \"%s\"\n", indel_f); exit(1); }
 
 	int ictr = 0;
 	while(1) {
@@ -310,18 +320,19 @@ void simulate(int chrnum)
 		line[strlen(line)-1] = '\0';
 		if(feof(indel_f))
 			break;
-		strtok(line," ");
-		indels[ictr].position = atoi(strtok(NULL," "));
+		strtok(line,"\t");
+		indels[ictr].position = atoi(strtok(NULL,"\t"));
+		strtok(NULL,"\t");
 		memset(sptr,'\0',100);
-		strcpy(sptr,strtok(NULL," "));
+		strcpy(sptr,strtok(NULL,"\t"));
 		indels[ictr].reflen = strlen(sptr);
-		strtok(NULL," ");
-		strtok(NULL," ");
-		strtok(NULL," ");
+		//strtok(NULL," ");
+		//strtok(NULL," ");
 		memset(indels[ictr].all[0],'\0',100);
 		memset(indels[ictr].all[1],'\0',100);
-		strcpy(indels[ictr].all[0],strtok(NULL," "));
-		strcpy(indels[ictr].all[1],strtok(NULL," "));
+		//strcpy(indels[ictr].all[0],strtok(NULL," "));
+		strcpy(indels[ictr].all[0],sptr);
+		strcpy(indels[ictr].all[1],strtok(NULL,"\t"));
 		ictr++;
 	}
 	fclose(indel_f);
@@ -357,9 +368,7 @@ void simulate(int chrnum)
 
 	for(i=0;i<som_ct;i++) {
 		sites[i].position = (int)((rand()*N_BP)/RAND_MAX) + 1;
-		sites[i].prevelance = (int)((long int)2*coverage*rand()/RAND_MAX) + (100-2*coverage);
-		sites[i].prevelance = (int)((long int)20*rand()/RAND_MAX) + (100-2*coverage-10<0 ? 0 : 100-2*coverage-10);
-		//sites[i].prevelance = (int)((long int)SOM_RANGE*rand()/RAND_MAX) + SOM_MIN;
+		sites[i].prevelance = prevalence;
 
 		if(ref_s[sites[i].position-1] == 'A' || ref_s[sites[i].position-1] == 'a')
 			sites[i].alt = A[(int)((long int)3*rand()/RAND_MAX)];
@@ -425,15 +434,15 @@ for(i=0; i<n_reads; i++) {
 					j_st = snp_ct+1;
 					reads[i].str[k] = snps[snp_ct].all[reads_hap[i%100]-1];
 					qualstr[k]='I';
-					qsum = rand()%30 + 21;
+					qsum = rand()%10 + 31;
 					qsum += 33;
-#ifdef DEBUG
+#ifdef FULLDEBUG
 printf("True\t%d\n",qsum);
 #endif
 					qualstr[k]=(int)qsum;
 					common_snp = 1;
 #ifdef DEBUG
-printf("Replacing common snp %c with %c on read %d at position %d,%d,%d\n",*(ref_s+reads[i].start+j),snps[snp_ct].all[reads_hap[i%100]-1],i,k+1,j+1,reads[i].start+j+1);
+printf("Replacing common snp %c with %c on read %d at position %d,%d,%d\n",*(ref_s+reads[i].start+j),snps[snp_ct].all[reads_hap[i%100]-1],reads[i].start+1,k+1,j+1,reads[i].start+j+1);
 #endif
 					break;
 				} else {
@@ -455,9 +464,9 @@ printf("Replacing common snp %c with %c on read %d at position %d,%d,%d\n",*(ref
 					int inct = 0;
 					while(reads[i].str[k] = (indels[indel_ct].all[reads_hap[i%100]-1])[inct]) {
 						qualstr[k]='I';
-					qsum = rand()%30 + 21;
+					qsum = rand()%10 + 31;
 					qsum += 33;
-#ifdef DEBUG
+#ifdef FULLDEBUG
 printf("True\t%d\n",qsum);
 #endif
 					qualstr[k]=(int)qsum;
@@ -468,7 +477,7 @@ printf("True\t%d\n",qsum);
 					//j += indels[indel_ct].reflen - strlen(indels[indel_ct].all[reads_hap[i%100]-1]);
 					j += (indels[indel_ct].reflen - 1);
 #ifdef DEBUG
-printf("Indeling site %c with %s on read %d up to position %d,%d,%d\n",*(ref_s+reads[i].start+j),indels[indel_ct].all[reads_hap[i%100]-1],i,k,j+1,reads[i].start+j+1);
+printf("Indeling site %c with %s on read %d up to position %d,%d,%d\n",*(ref_s+reads[i].start+j),indels[indel_ct].all[reads_hap[i%100]-1],reads[i].start+1,k,j+1,reads[i].start+j+1);
 #endif
 					break;
 				} else {
@@ -485,12 +494,12 @@ printf("Indeling site %c with %s on read %d up to position %d,%d,%d\n",*(ref_s+r
 						if(rnd <= sites[som].prevelance) {
 							reads[i].str[k] = sites[som].alt;
 							qualstr[k]='I';
-							qsum = rand()%30 + 21;
+							qsum = rand()%10 + 31;
 							qsum += 33;
 							qualstr[k]=(int)qsum;
 							som_snp = 1;
 #ifdef DEBUG
-printf("Adding somatic mutation at ref %c to %c on read %d at position %d,%d,%d\n",*(ref_s+reads[i].start+j),sites[som].alt,i,k+1,j+1,reads[i].start+j+1);
+printf("Adding somatic mutation at ref %c to %c on read %d at position %d,%d,%d\n",*(ref_s+reads[i].start+j),sites[som].alt,reads[i].start+1,k+1,j+1,reads[i].start+j+1);
 #endif
 						}
 					}
@@ -503,14 +512,14 @@ printf("Adding somatic mutation at ref %c to %c on read %d at position %d,%d,%d\
 				if(common_snp==0&&som_snp==0) {
 					reads[i].str[k] = *(ref_s+reads[i].start+j);
 					qualstr[k]='I';
-					qsum = rand()%30 + 21;
+					qsum = rand()%10 + 31;
 					qsum += 33;
-#ifdef DEBUG
+#ifdef FULLDEBUG
 printf("True\t%d\n",qsum);
 #endif
 					qualstr[k]=(int)qsum;
-#ifdef DEBUG
-printf("inserting %c on read %d at position %d,%d,%d\n",reads[i].str[k],i,k+1,j+1,reads[i].start+j+1);
+#ifdef FULLDEBUG
+printf("inserting %c on read %d at position %d,%d,%d\n",reads[i].str[k],reads[i].start+1,k+1,j+1,reads[i].start+j+1);
 #endif
 				}
 				k++;
@@ -527,17 +536,17 @@ printf("inserting %c on read %d at position %d,%d,%d\n",reads[i].str[k],i,k+1,j+
 				qualstr[k]='!';
 				qsum = rand()%10 + 21;
 				qsum += 33;
-#ifdef DEBUG
+#ifdef FULLDEBUG
 printf("False\t%d\n",qsum);
 #endif
 				qualstr[k]=(int)qsum;
 				k++;
 #ifdef DEBUG
-printf("replacing %c with %c on read %d at position %d,%d,%d\n",*(ref_s+reads[i].start+j),reads[i].str[k-1],i,k,j+1,reads[i].start+j+1);
+printf("replacing %c with %c on read %d at position %d,%d,%d\n",*(ref_s+reads[i].start+j),reads[i].str[k-1],reads[i].start+1,k,j+1,reads[i].start+j+1);
 #endif
 			} else {
 #ifdef DEBUG
-printf("Deleting %c on read %d at position %d,%d,%d\n",*(ref_s+reads[i].start+j),i,k+1,j+1,reads[i].start+j+1);
+printf("Deleting %c on read %d at position %d,%d,%d\n",*(ref_s+reads[i].start+j),reads[i].start+1,k+1,j+1,reads[i].start+j+1);
 #endif
 			}
 		}

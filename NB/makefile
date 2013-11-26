@@ -4,7 +4,7 @@
 .SUFFIXES: .o .C .c .cpp
 
 # FLAGS=  -O2
-FLAGS= -g -std=c++0x
+FLAGS= -g
 
 SRCDIR = .
 BINDIR = .
@@ -20,7 +20,7 @@ OBJ3 = program.o
 
 
 program : $(HEADER) $(OBJ) $(OBJ3)
-	   g++ $(FLAGS) -o $(BINDIR)/program $(OBJ) $(OBJ3) -lm
+	   g++ -g $(FLAGS) -o $(BINDIR)/program $(OBJ) $(OBJ3) -lm
 
 #===============================================================================
 
@@ -39,9 +39,9 @@ program.o: hmm.h read.h snp.h
 #===============================================================================
 
 .cpp.o: $(HEADERI)
-	g++ -c  $(FLAGS) $<
+	g++ -c -g $(FLAGS) $<
 .C.o: $(HEADERI)
-	g++ -c  $(FLAGS) $<
+	g++ -c -g -I/home/singhann/tools/boost_1_54_0 $(FLAGS) $<
 
 #checkout:
 #	co -l $(REV) $(ALL)
@@ -50,7 +50,7 @@ program.o: hmm.h read.h snp.h
 #	ci $(REV)  $(ALL)
 
 clean:
-	rm -f *.o core tags
+	rm -f *.o core
 
 tags: $(SRC)
 	ctags *.c

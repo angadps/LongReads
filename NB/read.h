@@ -12,15 +12,18 @@ public:
 
   ~READ(void);
 
-  void addsnp(SNP *snp, char allele, int qual);
-  void assignHaplotype(int haplotype, double prob);
+  void addsnp(SNP *snp, char allele, int qual, bool inp, bool delp);
+  void assignHaplotype(int haplotype, double prob, int flag);
   long GetPos(void);
   int GetLen(void);
   int GetHap(void);
+  int GetDiscordance(void);
   double GetHapProb(void);
   void AddKnownCount(int);
   SNP *GetSnp(int pos);
   char GetAllele(int pos);
+  bool GetProximalInsert(int pos);
+  bool GetProximalDelete(int pos);
   int GetQualScore(int pos);
   int GetSnpCount(void);
   int GetKnownCount(void);
@@ -47,9 +50,12 @@ private:
   int snp_count;
   int known_count;
   int hap;
+  int discordance;
   long start;
   double hprob;
   SNP **snps;
+  bool *inr;
+  bool *delr;
   char *alleles;
   int *qualstring;
 };

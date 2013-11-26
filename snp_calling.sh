@@ -1,10 +1,15 @@
 #!/bin/sh
 #$ -cwd
-## 1G,8::
+#$ -V
+#$ -o snp.out
+#$ -e snp.err
+#$ -S /bin/bash
+. /usr/prog/softenv/softenv.sh
 
 prefix=$1
 suffix=$2
 region=$3
+snprate=$4
 
 if [[ $region -eq 0 ]]
 then
@@ -14,7 +19,8 @@ fi
 rbase=${prefix}_$region
 vbase=${suffix}_$region
 
-qsub -sync y -l mem=1G,time=8:: -t 1-10 mpileup.sh ${rbase} $region $vbase
+#qsub -sync y -l mem=1G,time=8:: -t 1-10 mpileup.sh ${rbase} $region $vbase
+qsub -sync y -l mem_token=4G -t 1-10 mpileup.sh ${rbase} $region $vbase $snprate
 
 grep ^# ${vbase}.1.temp.vcf > ${vbase}.vcf
 mkdir -p ./tmp_${region}

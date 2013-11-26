@@ -23,8 +23,8 @@ SNP::SNP(string chr_s, long snp_pos, char snp_ref, char snp_alt, vector<string> 
 	alt = snp_alt;
 	refcount = altcount = errcount = 0;
 	count = -1;
-	overlap_count = 1;
-	known_overlap_count = 1;
+	overlap_count = 0;
+	known_overlap_count = 0;
 	position = snp_pos;
 	qual = qualscore;
 	likelihood_ratio = -1;
@@ -55,6 +55,7 @@ SNP::~SNP()
 	delete [] reads;
 	delete [] gl;
 	delete [] posterior;
+	delete [] somatic_posterior;
 }
 
 char* SNP::GetChr()
@@ -100,12 +101,6 @@ void SNP::add_somatic_posteriors(double post[3])
 void SNP::addEmission(int haplotype, double probability)
 {
 	emission[haplotype] = probability;
-}
-
-void SNP::assign_genotype(int gt, double genp)
-{
-	genotype = gt;
-	genprob = genp;
 }
 
 void SNP::IncrOverlapCount()
@@ -206,4 +201,12 @@ int SNP::GetKnownOverlapCount()
 {
 	return known_overlap_count;
 }
+
+/*
+void SNP::assign_genotype(int gt, double genp)
+{
+	genotype = gt;
+	genprob = genp;
+}
+*/
 

@@ -1,3 +1,23 @@
+/**************************************************************************************
+ * Workhorse of the program. This file contains functions to perform Naive Bayes
+ * Haplotype Calling of individual reads and to assign genotype scores using the
+ * haplotype calls.
+ * 
+ * Haplotypes are called only for reads that contain at least one overlapping known snp
+ * with previous read.
+ * 
+ * Genotypes are assigned separately for candidates that lie on reads that were assigned
+ * a haplotype or not:
+ *  1. For reads that are assigned haplotypes: genotype score includes haplotype
+ *     probability in calculations. Genotype scores are assigned only if >90% of the
+ *     reads that contain the site were assigned haplotypes, such that these reads
+ *     are also contiguous having no gaps of unassigned reads.
+ *  2. For reads that are not assigned haplotypes: genotype scores do not include
+ *     haplotype probability. Genotype scores are assigned to all sites that are
+ *     covered by a read.
+ * ***********************************************************************************/
+ 
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
@@ -25,6 +45,7 @@ int PROXIMAL_READ_CT = 10;
 //#define DEBUG
 
 // Works on known snp list
+// Given t-th read in list, returns base qual of snp with position pos.
 int GetPosQual(int t, long pos)
 {
 	READ *rd = reads_list[t];
@@ -38,6 +59,7 @@ int GetPosQual(int t, long pos)
 }
 
 // Works on known snp list
+// Given t-th read in list, returns allele of snp with position pos.
 char GetPosAllele(int t, long pos)
 {
 	READ *rd = reads_list[t];
@@ -71,12 +93,11 @@ void NaiveBayes(int snp_start, int snp_end, int T)
                 int rd_end = ppos+plen > npos+nlen ? npos+nlen-1 : ppos+plen-1;
 		
 		//mismatchsum = GetMismatchSum(nd);
-#ifdef DEBUG
-cout << "Mismatchsum=" << mismatchsum << " readlen=" << nlen << endl;
-#endif
 		//if(mismatchsum>=50)
 		//	continue;
+		
                 GetKnownSnpList(known_snp_list, &known_snp_count, known_index, t);
+                // This adds the count of known overlapping snps between adjacent reads
 		(*nd).AddKnownCount(known_snp_count);
 #ifdef DEBUG
 if(known_snp_count>0)
@@ -96,6 +117,9 @@ cout << "Haplotype " << j << endl;
 #ifdef DEBUG
 cout << sp->GetPos() << " " << sp->GetRef() << " " << sp->GetAlt();
 #endif
+				// Obtains naive bayes score for the count-th overlapping known snp 
+				// between the adjacent reads for haplotype, 'j'.
+				// Working with relative haplotype here.
 				emission = compute_new_emission(known_snp_list, count, t, known_index, j);
 					if(emission==0.0)
 						continue;
@@ -129,8 +153,10 @@ cout << "Discordance = " << flag << endl;
 cout << "Happrob[1] = " << haprob[1] << endl;
 cout << "Happrob[2] = " << haprob[2] << endl;
 #endif
+		// If haplotype probabilities are equal, randomly assign haplotype
 		hap = haprob[1] > haprob[2] ? 1 : haprob[1] == haprob[2] ? t%2+1 : 2;
 		double happrob = haprob[hap];
+		// convert relative haplotype to absolute haplotype
 		hap = (*pd).GetHap() == hap ? 1 : 2;
 		nd->assignHaplotype(hap, happrob, flag);
 		flag = 0; direction = 1;
@@ -140,6 +166,7 @@ cout << "Happrob[2] = " << haprob[2] << endl;
 	delete [] known_snp_list;
 }
 
+// Assign genotype/somatic scores
 void FindSomaticMutations(long snp_start, long snp_end)
 {
 	int known_hap_count = 0, gap;
@@ -159,7 +186,7 @@ void FindSomaticMutations(long snp_start, long snp_end)
 #ifdef DEBUG
 cout << "Prior het prob for som " << (*snp_it)->GetPos() << " = " << prior[1] << endl;
 #endif
-
+		// Get posterior probability from haplotype probabilities
 		gap = somaticHaplotypeProbability(snp_it, happrob, &known_hap_count);
 
 		prior[0] = 1 - snp_rate - snp_rate*snp_rate;
@@ -196,6 +223,7 @@ cout << "Posterior het prob for som " << (*snp_it)->GetPos() << " = " << post[1]
 	}
 }
 
+// Calculate posterior probability
 int somaticHaplotypeProbability(vector<SNP*>::iterator snp_it, double probs[3], int *known_hap_count)
 {
         char ref = (*snp_it)->GetRef();
@@ -212,6 +240,8 @@ int somaticHaplotypeProbability(vector<SNP*>::iterator snp_it, double probs[3], 
 
 	ref_ct = (*snp_it)->GetRefCount();
 	alt_ct = (*snp_it)->GetAltCount();
+	
+	// dynamically calculate the prevalence
 	prevalence = (double)(alt_ct)/(double)(ref_ct+alt_ct);
 	*known_hap_count = 0;
         probs[0] = 1.0; probs[1] = 1.0; probs[2] = 1.0;
@@ -222,21 +252,22 @@ int somaticHaplotypeProbability(vector<SNP*>::iterator snp_it, double probs[3], 
 cout << " Count on snp " << (*snp_it)->GetPos() << " is " << max_reads << endl;
 #endif
 
+	// First for loop looks for maximum contiguous region
         for(count=0; count<max_reads; count++) {
                 READ *rd = (*snp_it)->GetRead(count);
                 READ *pd = (*snp_it)->GetRead(count-1);
 
-                if(rd->GetKnownOverlapCount()>0&&rd->GetDiscordance()==0) {
+                if(rd->GetKnownOverlapCount()>0&&rd->GetDiscordance()==0) { // No gap exists in hap assignment
 			(*known_hap_count)++;
 			stretch++;
 			if(contig_new==1) {
 				contig_start = count;
 				contig_new = 0;
 			}
-                } else {
+                } else { // Gap exists in hap assignment. Not contiguous.
 			contiguous = 0;
 			contig_new = 1;
-			if(stretch>max_stretch) {
+			if(stretch>max_stretch) { // Identify longest stretch of contiguous assignments
 				max_stretch = stretch;
 				contig_max = contig_start;
 			}
@@ -256,13 +287,14 @@ cout << "SNP=" << (*snp_it)->GetPos() << " Gap=" << gap << " contiguous=" << con
 
 	if(contiguous==0)
 		gap+=2;
-	if(max_stretch<(int)(9*max_reads/10))
+	if(max_stretch<(int)(9*max_reads/10)) // If max stretch of contiguous assigned reads is at least 90% of total number, consider reads for genotype score assignments.
 		gap++;
 
 #ifdef DEBUG
 cout << " Gap=" << gap << " contiguous=" << contiguous << " max_reads=" << max_reads << " max_stretch=" << max_stretch << " contig_max=" << contig_max << " prevalence = " << prevalence << endl;
 #endif
 
+	// Second for loop performs actual genotype score calculation
         for(count=0; count<max_reads; count++) {
 		bool proximal_ins = 0, proximal_del = 0;
                 char all, pall = 'N';
@@ -283,7 +315,7 @@ cout << "For som " << (*snp_it)->GetPos() << " skipping read " << rd->GetPos() <
 			haprob = 0.5;
                 }
 
-                // Obtain allele on current read
+                // Obtain allele, base qual and #proximal insertions/deletions on current read
 		long snp_position = (*snp_it)->GetPos();
                 for(int s_pos=0; s_pos<snp_count; s_pos++) {
                         if(rd->GetSnp(s_pos)->GetPos() == snp_position) {
@@ -295,7 +327,7 @@ cout << "For som " << (*snp_it)->GetPos() << " skipping read " << rd->GetPos() <
                                 break;
                         }
                 }
-		if(hap==1) {
+		if(hap==1) { // See comments later
                 	if(all == ref) {
                         	ref1_ct++;
                 	} else if(all == alt) {
@@ -312,14 +344,14 @@ cout << "For som " << (*snp_it)->GetPos() << " skipping read " << rd->GetPos() <
 		}
                 real_count++;
 
-		if(qual<5)
+		if(qual<5) // No base with quality < 5 should be considered
 			continue;
-		if(all==alt && qual>=20)
+		if(all==alt && qual>=20) // At least one alternate allele with base quality >20
 			mapq1++;
-		if(proximal_ins==1) {
+		if(proximal_ins==1) { // Read contains insertion in vicinity
 			proximal_ins_sum+= 1;
 		}
-		if(proximal_del==1) {
+		if(proximal_del==1) { // Read contains deletion in vicinity
 			proximal_del_sum+= 1;
 		}
 		if(all==alt) {
@@ -333,7 +365,12 @@ cout << "For som " << (*snp_it)->GetPos() << " skipping read " << rd->GetPos() <
 		proximal_ins = 0;
 		proximal_del = 0;
 
+		// Work on contiguous stretch only
 		if(count>=contig_max&&count<contig_max+max_stretch) {
+			// Since we are haplotype-aware, two separate set of calculations are performed
+			// First set assumes somatic mutation lies on haplotype 1
+			// Second set assumes somatic mutation lies on haplotype 2
+			// In the end we consider that haplotype to contain somatic mutation, which has higher het probability assigned
 			if(hap==1) {
                 		if(all == ref) {
                 	        	probs1[0] *= ((haprob)*(1.0-qualscore));
@@ -367,7 +404,7 @@ cout << "For som " << (*snp_it)->GetPos() << " skipping read " << rd->GetPos() <
                 	        	probs2[2] *= ((1.0-haprob)*(1.0*qualscore/3.0));
 				}
 			}
-		} else if(rd->GetKnownOverlapCount()>=0) {
+		} else if(rd->GetKnownOverlapCount()>=0) { // Insufficient contiguous regions. Haplotype unaware
                 	if(all == ref) {
                         	probs1[0] *= ((1.0-qualscore));
                         	probs1[1] *= (1.0-prevalence-qualscore/3.0);
@@ -397,6 +434,7 @@ cout << "For som " << (*snp_it)->GetPos() << " bearing allele " << all << ref <<
 #endif
         }
 
+	// Pick one of two sets of scores
 	double norm1 = probs1[0] + probs1[1] + probs1[2];
 	double norm2 = probs2[0] + probs2[1] + probs2[2];
 	if(probs1[1]/norm1>probs2[1]/norm1) {
@@ -411,10 +449,10 @@ cout << "For som " << (*snp_it)->GetPos() << " bearing allele " << all << ref <<
 		probs[0]=probs1[0];probs[1]=probs1[1];probs[2]=probs1[2];
 	}
 
-
 	PROXIMAL_READ_CT = 2 + (int)ceil((double)(real_count)/10.0);
 	if(clus_in_flag>=1||clus_del_flag>=1)
 		clus_flag = 1;
+	// FILTERS
 	if(ref_ct<3 || alt_ct<1 || (gap!=3&&alt1_ct>=2&&alt2_ct>=2) || mapq1==0 || proximal_ins_sum>=PROXIMAL_READ_CT&&alt_ct<5 || proximal_del_sum>=PROXIMAL_READ_CT&&alt_ct<5 || clus_flag==1) { // || (gap==3&&alt_ct>=ref_ct))
 		gap=5;
 		if(mapq1==0)
@@ -454,6 +492,7 @@ int GetMismatchSum(READ *read)
 	return (int)sum;
 }
 
+// Obtain list of overlapping known (dbsnp) sites between adjacent reads
 void GetKnownSnpList(SNP** known_snp_list, int *known_snp_count, int *known_index, int t)
 {
 	READ *prev_read = reads_list[t-1];
@@ -487,6 +526,7 @@ void GetKnownSnpList(SNP** known_snp_list, int *known_snp_count, int *known_inde
 	}
 }
 
+// Compute naive bayes probability
 double compute_new_emission(SNP **reads_snp_list, int count, int t, int *index, int hap)
 {
 	double err_rate = errate;

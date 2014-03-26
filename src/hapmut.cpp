@@ -25,18 +25,19 @@
 
 
 #include<stdio.h>
-#include <assert.h>
-#include <math.h>
+#include<assert.h>
+#include<math.h>
 #include<stdlib.h>
 #include<string.h>
 #include<iostream>
 #include<string>
-#include <iomanip>
-#include <fstream>
+#include<iomanip>
+#include<fstream>
 #include<map>
 #include<vector>
 #include<sstream>
 #include<algorithm>
+
 #include "api/BamReader.h"
 #include "api/BamAux.h"
 
@@ -50,9 +51,15 @@ using namespace BamTools;
 
 //#define DEBUG
 
+// Default is ALL chromosomes
 int region = 0;
 double errate = 0.005;
+
+// Number of reads read at a time.
 int MAX_READS = 10000;
+
+// Maximum expected read length. This is a very important parameter.
+// This parameter should be specified in command line if larger read lengths are expected.
 int MAX_READ_LEN = 4000;
 int INDEL_RANGE = 15;
 long file_pos;
@@ -77,6 +84,7 @@ RefVector refList;
 
 read_span *read_info = new read_span[1000];
 
+// Splits a string into set of strings based on specified delimiter
 vector<string> &split(const string &s, char delim, vector<string> &elems) {
 	stringstream ss(s);
 	string item;
@@ -92,9 +100,11 @@ vector<string> split(const string &s, char delim,int flag) {
 	return split(s, delim, elems);
 }
 
-// Populates refList
-// If single chromosome, runs that within specified region
-// If region exceeds limits, resets (except start at 0)
+// Valid values are:
+// 'ALL'
+// chr
+// chr:start-end
+// List of chromosomes are fetched from BAM file to compare against
 int validate_region(const char *file_name, const char *stregion, int *start, int *end)
 {
 	int flag = 0;
@@ -113,19 +123,20 @@ int validate_region(const char *file_name, const char *stregion, int *start, int
 		string reg = stregion;
 		vector<string> contig = split(reg,':',1);
 		for(vector<RefData>::iterator rd = refList.begin(); rd!=refList.end(); rd++) {
-			if((*rd).RefName==contig[0]) {
-				if(contig.size()==1) {
+			if((*rd).RefName==contig[0]) { // Found chromosome
+				if(contig.size()==1) { // Is there a lingering start and end?
 					*start = -1;
 					*end = -1;
 					flag = 1;
-				} else {
+				} else { // Yes, there is.
 					vector<string> pos = split(contig[1],'-',1);
+					// Both start and end should be properly specified.
 					if(pos.size()!=2||pos[0].empty()||pos[1].empty()) {
 						flag = -1;
-					} else if(atol(pos[0].c_str())&&atol(pos[1].c_str())) {
+					} else if(atol(pos[0].c_str())&&atol(pos[1].c_str())) { // Valid numbers
 						*start = atol(pos[0].c_str());
 						*end = atol(pos[1].c_str());
-						if(*end>(*rd).RefLength) {
+						if(*end>(*rd).RefLength) { // Cannot go beyond chromosome limit.
 							*end = (*rd).RefLength;
 						}
 						flag = 1;
@@ -136,6 +147,7 @@ int validate_region(const char *file_name, const char *stregion, int *start, int
 				break;
 			}
 		}
+		// Didn't find the chromosome in BAM file so fail.
 		if(flag==0)
 			flag = -1;
 	}
@@ -143,6 +155,7 @@ int validate_region(const char *file_name, const char *stregion, int *start, int
 	return flag;
 }
 
+// Set pointer to start of region of interest
 void SetBamRegion(const char *samfile, BamReader &reader, string &refId, int start, int end)
 {
 	if(!reader.Open(samfile)) {
@@ -158,6 +171,7 @@ void SetBamRegion(const char *samfile, BamReader &reader, string &refId, int sta
 
 	BamRegion bregion(RefId,start,RefId,end);
 	// REVISIT: SetRegion returns 0 irrespective of failure or success
+	// Also, try with LocateIndex and HasIndex functions.
 	int result = reader.SetRegion(bregion);
 	if(result) {
 		cerr << "Buggy:Unable to locate region " << refId << ":" << start << "-" << end << endl;
@@ -166,8 +180,8 @@ void SetBamRegion(const char *samfile, BamReader &reader, string &refId, int sta
 	return;
 }
 
-// Sets file pointer to start of chromosome region specified
-// DOES NOT rewind to start location and only moves pointer ahead.
+// Sets file pointer to start of chromosome specified in region
+// DOES NOT rewind to beginning of VCF at any point and only moves pointer ahead.
 void SetVcfRegion(FILE *file, string &chr)
 {
 	int flag = 0;
@@ -185,6 +199,7 @@ void SetVcfRegion(FILE *file, string &chr)
 		if(str[0]=='#')
 			continue;
 
+		// All files should contain similar chromosome notation
 		if(flag==0) {
 			if((str[0]=='c'&&chr.c_str()[0]!='c') || (str[0]!='c'&&chr.c_str()[0]=='c')) {
 				cerr << "chr namings in VCF files do not match" << endl;
@@ -196,7 +211,7 @@ void SetVcfRegion(FILE *file, string &chr)
 		while(str[i]!='\t')
 			word[i] = str[i++];
 		word[i] = '\0';
-		if(strcmp(word,chr.c_str())!=0)
+		if(strcmp(word,chr.c_str())!=0) // Check for chromosome match.
 			continue;
 		else {
 			fsetpos(file,&prev_pos);
@@ -205,18 +220,17 @@ void SetVcfRegion(FILE *file, string &chr)
 	}
 }
 
+// Multi-utility function
+// 1. Fetch allele at specified position
+// 2. Fetch base quality at specified position
+// 3. Fetch number of insertions and deletions within of INDEL_RANGE for artifact filtering
 int get_indel_count(vector<CigarOp> &cigar, int limit, int *inend, int *instart, int *delend, int *delstart)
 {
-	//char c_cigar[1000];
-	//strcpy(c_cigar,cigar.c_str());
-	//c_cigar[cigar.length()] = '\0';
 	int it = 0, len = 0, dlen = 0, mlen = 0, ilen = 0, dmlim1 = 0, dmlim3 = 0, lim1_flag = 0, lim2_flag = 0, dmid = 0, imid = 0;
 	int limit2 = limit;
 	int limit1 = limit - (INDEL_RANGE+1)/2;
 	int limit3 = limit + (INDEL_RANGE-1)/2;
 
-	//int cigar_len = strlen(c_cigar);
-	//char *cigar_ptr = c_cigar+it;
 	std::vector<CigarOp>::const_iterator cigarIter = cigar.begin();
 	std::vector<CigarOp>::const_iterator cigarEnd = cigar.end();
 	string cig;
@@ -224,11 +238,11 @@ int get_indel_count(vector<CigarOp> &cigar, int limit, int *inend, int *instart,
 	for ( ; cigarIter != cigarEnd; ++cigarIter) {
 		const CigarOp& op = (*cigarIter);
 
-		if(op.Type==Constants::BAM_CIGAR_SOFTCLIP_CHAR||op.Type==Constants::BAM_CIGAR_HARDCLIP_CHAR)
+		if(op.Type==Constants::BAM_CIGAR_SOFTCLIP_CHAR||op.Type==Constants::BAM_CIGAR_HARDCLIP_CHAR) // H/S
 			continue;
 
 		len = op.Length;
-		if(op.Type==Constants::BAM_CIGAR_MATCH_CHAR) {
+		if(op.Type==Constants::BAM_CIGAR_MATCH_CHAR) { // M
 			mlen += len;
 			len = 0;
 			if(mlen+dlen-len>=limit1) {
@@ -240,7 +254,7 @@ int get_indel_count(vector<CigarOp> &cigar, int limit, int *inend, int *instart,
 					}
 				}
 			}
-		} else if(op.Type==Constants::BAM_CIGAR_DEL_CHAR) {
+		} else if(op.Type==Constants::BAM_CIGAR_DEL_CHAR) { // D
 			dlen += len;
 			len = 0;
 			if(mlen+dlen-len>=limit2&&lim2_flag==0)
@@ -259,7 +273,7 @@ int get_indel_count(vector<CigarOp> &cigar, int limit, int *inend, int *instart,
 				*delend = (dlen-dmlim3);
 				break;
 			}
-		} else if(op.Type==Constants::BAM_CIGAR_INS_CHAR) {
+		} else if(op.Type==Constants::BAM_CIGAR_INS_CHAR) { // I
 			ilen += len;
 			if(mlen+dlen-len+len<limit1)
 				*instart = ilen;
@@ -275,6 +289,8 @@ int get_indel_count(vector<CigarOp> &cigar, int limit, int *inend, int *instart,
 	return dmid-imid;
 }
 
+// Traverse through bam file and identify start and end positions of 
+// successive chunks of 10,000 reads.
 int get_read_span(const char *file_name, string &chr, int start, int end)
 {
 	int iter = 0, flag = 0, span_iter = 0;
@@ -296,6 +312,7 @@ int get_read_span(const char *file_name, string &chr, int start, int end)
 
 	BamRegion bregion(RefId,start,RefId,end);
 	// REVISIT: SetRegion returns 0 irrespective of failure or success
+	// LocateIndex and HasIndex?
 	int result = reader.SetRegion(bregion);
 	if(result) {
 		cerr << "Buggy:Unable to locate region " << chr << ":" << start << "-" << end << endl;
@@ -325,6 +342,7 @@ int get_read_span(const char *file_name, string &chr, int start, int end)
 	return span_iter+1;
 }
 
+// Read dbsnp file chunk
 void read_known_snp_file(FILE *snp_file, string &chr, int start, int end)
 {
 	int flag = 0;
@@ -352,15 +370,15 @@ void read_known_snp_file(FILE *snp_file, string &chr, int start, int end)
 		}
 
 		dchr = snp_line[0];
-		//int prog = chrcmp(dchr,chr);
-		//if(prog>0) {
+		// Assumes contiguous reading.
+		// If chromosome is no more similar, read operation complete.
 		if(dchr!=chr) {
 			cout << "Finished reading dbsnp..." << endl;
 			fsetpos(snp_file,&prev_pos);
 			break;
-		} //else if(prog<0)
-		//	continue;
+		}
 
+		// (start, end)
 		int ppos = atol(snp_line[1].c_str());
 		int prog = (ppos>end) ? 1 : (ppos<start) ? -1 : 0;
 		if(prog>0) {
@@ -375,11 +393,6 @@ void read_known_snp_file(FILE *snp_file, string &chr, int start, int end)
 		// Consider hets only. Others are not useful for haplotype calling
 		if(snp_line[3]==snp_line[4] || snp_line[3].length()>1 || snp_line[4].length()>1)
 			continue;
-		//string snpit;
- 		//if(snp_line[7].find("PH3;")==string::npos)
-		//	snpit = snp_line[1] + "," + snp_line[3] + "," + snp_line[4] + ",1";
-		//else
-		//	snpit = snp_line[1] + "," + snp_line[3] + "," + snp_line[4] + ",2";
 
 		struct DBSNP snpit;
 		snpit.pos = ppos;
@@ -391,11 +404,11 @@ void read_known_snp_file(FILE *snp_file, string &chr, int start, int end)
 	}
 }
 
+// Read list of candidate mutations and check for presence in dbsnp
 void read_snp_file(FILE *snp_file, string &chr, long snp_end, int start, int end)
 {
 	string line;
 
-	//vector<string>::iterator vec_start = known_snps.begin();
 	vector<struct DBSNP>::iterator vec_start = known_snps.begin();
 	while(true) {
 		char str[10000];
@@ -411,14 +424,14 @@ void read_snp_file(FILE *snp_file, string &chr, long snp_end, int start, int end
 		vector<string> vcf_line = split(line, '\t',0);
 
 		string dchr = vcf_line[0];
-		//int prog = chrcmp(dchr,chr);
-		//if(prog>0) {
+		// Assumes contiguous reading.
+		// If chromosome is no more similar, read operation complete.
 		if(dchr!=chr) {
 			fsetpos(snp_file,&prev_pos);
 			break;
-		} //else if(prog<0)
-		//	continue;
+		}
 
+		// (start, end)
 		int ppos = atol(vcf_line[1].c_str());
 		int prog = (ppos>end||ppos>snp_end) ? 1 : (ppos<start) ? -1 : 0;
 		if(prog>0) {
@@ -450,6 +463,9 @@ void read_snp_file(FILE *snp_file, string &chr, long snp_end, int start, int end
 	cout << "SNP MAP size = " << snp_list.size() << endl;
 }
 
+// Read reads in chunks
+// SetBamRegion has to be called before this
+// SetBamRegion opens file and sets region of interest
 int read_sam_files(BamReader &reader)
 {
 	int i, iter = 0, slen = 0;
@@ -467,19 +483,20 @@ int read_sam_files(BamReader &reader)
 		if(al.GetSoftClips(clipSizes, readPositions, genomePositions, false)) {
 			int clipsum = 0;
 			for(vector<int>::iterator clip=clipSizes.begin(); clip!=clipSizes.end(); clip++) {
-				clipsum += (*clip);
+				clipsum += (*clip); // Soft-clip length
 			}
 			slen = clipsum;
 			if(10*clipsum>=3*al.Length)
 				continue;
 		} else {
-			slen = 0;
+			slen = 0; // Soft-clips not present
 		}
 
 		al.BuildCharData();
 		long start = al.Position+1;
 		int length = al.Length;
 		READ *read = new READ(start,length); // create new read object
+		// Add alleles to read and check for known snps at the same time.
 		for(vector<SNP*>::iterator snp_it = snp_begin; snp_it != snp_list.end(); snp_it++) {
 			long snp_pos = (*snp_it)->GetPos();
 			int known_snp = (*snp_it)->GetKnown();
@@ -492,13 +509,13 @@ int read_sam_files(BamReader &reader)
 					int indel_start=0, indel_end=0, inend=0, instart=0, delend=0, delstart=0;
 					int qual = 0, type = 2;
 
+					// Get PROXIMAL INSERTION/DELETION information
 					int ndels = get_indel_count(al.CigarData,snp_pos-start+1,&inend,&instart,&delend,&delstart);
 					if(ndels==9999) {
 						continue;
 					} else {
 						allele = al.QueryBases[snp_pos + slen - start -ndels];
 						qual = al.Qualities[snp_pos + slen - start -ndels];
-//cout << al.AlignedBases.length() << ":" << al.QueryBases.length() << ":" << ndels << endl;
 						inp = inend>instart ? 1 : 0;
 						delp = delend>delstart ? 1 : 0;
 #ifdef DEBUG
@@ -529,6 +546,7 @@ cout << "Read:" << al.Position+1 << " snp_pos:" << snp_pos << " slen:" << slen <
 	//return reads_list.size();
 }
 
+// Perform Naive Bayes haplotype calling and joint genotype calling
 void runNB(ofstream &stateOutput, ofstream &distanceOutput, long snp_start, long snp_end, int nbSymbols)
 {
 	char chr[10];
@@ -536,8 +554,10 @@ void runNB(ofstream &stateOutput, ofstream &distanceOutput, long snp_start, long
 	NaiveBayes(snp_start,snp_end, nbSymbols);
 	FindSomaticMutations(snp_start, snp_end);
 
+	// Output results
 	vector<SNP*>::iterator snp_list_end = snp_list.end();
 	for(vector<SNP*>::iterator snp_it = snp_list.begin(); snp_it != snp_list_end; snp_it++) { // check for snps in vector
+		// Do not print *known (dbsnp)* sites
 		if((*snp_it)->GetKnown())
 			continue;
 		int status = 0;

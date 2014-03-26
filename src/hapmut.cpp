@@ -7,7 +7,7 @@
  * 3. Read bam file into memory
  * 4. Invoke the Naive Bayes method
  * 
- * All the above functions read the respective files in chunks rather than in whole.
+ * All the above functions (except dbsnp read) read the respective files in chunks rather than in whole.
  * This significantly reduces the memory requirements, while also making the memory
  * requirement agnostic to the size of the respective files.
  * 
@@ -100,10 +100,8 @@ vector<string> split(const string &s, char delim,int flag) {
 	return split(s, delim, elems);
 }
 
-// Valid values are:
-// 'ALL'
-// chr
-// chr:start-end
+// Populates refList
+// Valid values for region are: 'ALL', chr, chr:start-end
 // List of chromosomes are fetched from BAM file to compare against
 int validate_region(const char *file_name, const char *stregion, int *start, int *end)
 {
@@ -599,6 +597,7 @@ void runNB(ofstream &stateOutput, ofstream &distanceOutput, long snp_start, long
 */
 }
 
+// Delete SNP/READ objects after every iteration
 void delete_objects(long snp_start, long snp_end)
 {
 	for(vector<SNP*>::iterator snp_it = snp_list.begin(); snp_it != snp_list.end();) {
@@ -614,4 +613,234 @@ void delete_objects(long snp_start, long snp_end)
 
 	for(vector<READ*>::iterator read_it = reads_list.begin(); read_it != reads_list.end();) {
 		if((*read_it)->GetPos() < snp_start) {
-			delete (*
+			delete (*read_it);
+			reads_list.erase(reads_list.begin());
+		} else if((*read_it)->GetPos()+(*read_it)->GetLen() >= snp_end) {
+			break;
+		} else {
+			delete (*read_it);
+			reads_list.erase(reads_list.begin());
+		}
+	}
+}
+
+int main(int argc, char **argv)
+{
+	int i;
+	const char *samfile="";
+	const char *vcffile="";
+	const char *dbsnpfile="";
+	const char *outbase="";
+	const char *regionstr="";
+	int sam_ck = 0, vcf_ck = 0, dbsnp_ck = 0, out_ck = 0, err_ck = 0, chr_ck = 0, max_reads_ck = 0, max_len_ck = 0, indel_range_ck = 0;
+
+	// 4 required parameters
+	// For each parameter read, no duplicate is allowed.
+	// If duplicate was provided, only first one is read.
+	if(argc>4) {
+		int param = 1;
+		for(param=1;param<argc;param++) {
+			char *token[2];
+			token[0] = strtok(argv[param], "=");
+			if(token[0]==NULL||(token[1] = strtok(NULL, "=")) == NULL) {
+				printf("Ignoring incorrect parameter #%d\n", param);
+			} else {
+				if(strcmp(token[0],"-sam_file")==0) {
+					if(sam_ck>0) {
+						printf("Duplicate parameter %s=%s, ignoring..\n", token[0],token[1]);
+					} else {
+						sam_ck++;
+						samfile = (const char *)token[1];
+					}
+				} else if(strcmp(token[0],"-vcf_file")==0) {
+					if(vcf_ck>0) {
+						printf("Duplicate parameter %s=%s, ignoring..\n", token[0],token[1]);
+					} else {
+						vcf_ck++;
+						vcffile = (const char *)token[1];
+					}
+				} else if(strcmp(token[0],"-dbsnp")==0) {
+					if(dbsnp_ck>0) {
+						printf("Duplicate parameter %s=%s, ignoring..\n", token[0],token[1]);
+					} else {
+						dbsnp_ck++;
+						dbsnpfile = (const char *)token[1];
+					}
+				} else if(strcmp(token[0],"-out_base")==0) {
+					if(out_ck>0) {
+						printf("Duplicate parameter %s=%s, ignoring..\n", token[0],token[1]);
+					} else {
+						out_ck++;
+						outbase = (const char *)token[1];
+					}
+				} else if(strcmp(token[0],"-err_rate")==0) {
+					if(err_ck>0) {
+						printf("Duplicate parameter %s=%s, ignoring..\n", token[0],token[1]);
+					} else {
+						err_ck++;
+						errate = atof((const char *)token[1]);
+					}
+				} else if(strcmp(token[0],"-chr")==0) {
+					if(chr_ck>0) {
+						printf("Duplicate parameter %s=%s, ignoring..\n", token[0],token[1]);
+					} else {
+						chr_ck++;
+						regionstr = (const char *)token[1];
+					}
+				} else if(strcmp(token[0],"-max_reads")==0) {
+					if(max_reads_ck>0) {
+						printf("Duplicate parameter %s=%s, ignoring..\n", token[0],token[1]);
+					} else {
+						max_reads_ck++;
+						MAX_READS = atoi((const char *)token[1]);
+					}
+				} else if(strcmp(token[0],"-max_read_len")==0) {
+					if(max_len_ck>0) {
+						printf("Duplicate parameter %s=%s, ignoring..\n", token[0],token[1]);
+					} else {
+						max_len_ck++;
+						MAX_READ_LEN = atoi((const char *)token[1]);
+					}
+				} else if(strcmp(token[0],"-indel_range")==0) {
+					if(indel_range_ck>0) {
+						printf("Duplicate parameter %s=%s, ignoring..\n", token[0],token[1]);
+					} else {
+						indel_range_ck++;
+						INDEL_RANGE = atoi((const char *)token[1]);
+					}
+				} else {
+					printf("Invalid parameter %s=%s. Ignoring..\n", token[0],token[1]);
+				}
+			}
+		}
+	} else {
+		printf("Insufficient arguments\n");
+		printf("Usage: hapmut -sam_file=<sam file> -vcf_file=<vcf file> -dbsnp=<dbsnp file> -out_base=<output base> [-err_rate=<error rate>] [-chr=<chr:start-end | ALL>] [-max_reads=<max reads at a time>] [-max_read_len=<maximum expected read length>] [-indel_range=<range of search for sequencing artifact>]\n");
+		return 1;
+	}
+	if(sam_ck==0||vcf_ck==0||dbsnp_ck==0||out_ck==0) {
+		printf("Insufficient arguments\n");
+		printf("Usage: hapmut -sam_file=<sam file> -vcf_file=<vcf file> -dbsnp=<dbsnp file> -out_base=<output base> [-err_rate=<error rate>] [-chr=<chr:start-end | ALL>] [-max_reads=<max reads at a time>] [-max_read_len=<maximum expected read length>] [-indel_range=<range of search for sequencing artifact>]\n");
+		return 1;
+	}
+
+	int iter=0, start = -1, end = -1;
+
+	// Populate refList - list of chromosomes
+	if(validate_region(samfile,regionstr,&start,&end)<0) {
+		printf("Incorrect chr value: %s\n",regionstr);
+		return 1;
+	}
+
+	char stateOutputName[256];
+	char distanceOutputName[256];
+
+	sprintf(stateOutputName,"%s%s", outbase, ".sta");
+	sprintf(distanceOutputName,"%s%s", outbase, ".obs");
+
+	double prob1 = 0.99;
+
+	FILE *dbsnp_file = fopen(dbsnpfile, "r");
+	if(dbsnp_file==NULL) {
+		printf("Cannot open dbsnp file %s\n",dbsnpfile);
+		exit(1);
+	}
+	FILE *snp_file = fopen(vcffile, "r");
+	if(snp_file==NULL) {
+		printf("Cannot open vcf file %s\n",vcffile);
+		exit(1);
+	}
+	ofstream stateOutput(stateOutputName);
+	ofstream distanceOutput(distanceOutputName);
+
+cout << "Entering loop" << endl;
+
+	// Iterate over every chromosome (or single chromosome in case of specified region
+	for(vector<RefData>::iterator refId = refList.begin(); refId!=refList.end(); refId++) {
+		string chrname = (*refId).RefName;
+		cout << "Reading span file; chromosome " << (*refId).RefName << endl;
+		if(start==-1&&end==-1) {
+			start = 1;
+			end = (*refId).RefLength;
+		}
+		// Split chromosome into chunks
+		int span = get_read_span(samfile,(*refId).RefName,start,end);
+		if(span==1)
+			continue;
+
+		cout << "Reading known snp file; chromosome " << (*refId).RefName << endl;
+		SetVcfRegion(dbsnp_file,(*refId).RefName);
+		read_known_snp_file(dbsnp_file,(*refId).RefName,start,end);
+
+		BamReader reader;
+		// Opens the Bam file and sets the specified region
+		SetBamRegion(samfile,reader,(*refId).RefName,start,end);
+
+		// Work in chunks
+		while(iter<span) {
+			cout << "Reading vcf file; chromosome " << (*refId).RefName << endl;
+			SetVcfRegion(snp_file,(*refId).RefName);
+			read_snp_file(snp_file, (*refId).RefName, read_info[iter].end + MAX_READ_LEN, start, end); // Reads specified range or from pos 1
+			cout << "Reading sam file; chromosome " << (*refId).RefName << endl;
+			int read_ct = read_sam_files(reader); // Reads 10000 at a time
+			if(iter==0) {
+				distanceOutput << (*refId).RefName << "\t" << reads_list[0]->GetPos() << "\t" << reads_list[0]->GetHap() << "\t" << reads_list[0]->GetHapProb() << endl;
+			} else {
+				read_ct++;
+			}
+			// Runs haplotype calling on [start,end] start position range of reads
+			// Runs mutation calling on (start,end]
+			runNB(stateOutput, distanceOutput, read_info[iter].start, read_info[iter].end, read_ct);
+			// Delete reads [start,end.end<end]
+			// Delete snps [start,end)
+			delete_objects(read_info[iter].start, read_info[iter].end);
+			iter++;
+		}
+		reader.Close();
+	}
+
+	distanceOutput.close();
+	stateOutput.close();
+	fclose(snp_file);
+	fclose(dbsnp_file);
+	return 0;
+}
+
+/*
+int chrstrip(string region)
+{
+	int index = 0;
+	const char *regionstr = region.c_str();
+
+	if(regionstr[0]=='c'&&regionstr[1]=='h'&&regionstr[2]=='r')
+		index = 3;
+
+	if(regionstr[index]=='X')
+		return 23;
+	else if(regionstr[index]=='Y')
+		return 24;
+	//else if(regionstr[index]=='M'&&regionstr[index+1]=='T')
+	else if(regionstr[index]=='M')
+		return 25;
+	else if(atoi(regionstr+index)<1||atoi(regionstr+index)>22)
+		return -1;
+	else {
+		//const char *strindex = regionstr+index;
+		return atoi(regionstr+index);
+	}
+}
+
+int chrcmp(string &dchr, string &chr)
+{
+	int p1 = chrstrip(dchr);
+	int p2 = chrstrip(chr);
+
+	if(p1>p2)
+		return 1;
+	else if(p1<p2)
+		return -1;
+	else
+		return 0;
+}
+*/
+

@@ -1,4 +1,3 @@
-
 void GibbsSampling(int snp_start, int snp_end, int nbSymbols);
 void NaiveBayes(int snp_start, int snp_end, int nbSymbols);
 void GetCommonSnpList(SNP** reads_snp_list, SNP** known_snp_list, int *common_snp_count, int *known_snp_count, int *common_index, int *known_index, int t);

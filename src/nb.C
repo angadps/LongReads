@@ -26,15 +26,15 @@
 #include <string.h>
 #include <assert.h>
 #include <math.h>
-#include <boost/math/distributions/skew_normal.hpp>
-#include <boost/math/distributions/binomial.hpp>
-#include <boost/math/distributions/beta.hpp>
+//#include <boost/math/distributions/skew_normal.hpp>
+//#include <boost/math/distributions/binomial.hpp>
+//#include <boost/math/distributions/beta.hpp>
 
 using namespace std;
 
 #include "read.h"
 #include "snp.h"
-#include "hmm.h"
+#include "nb.h"
 
 extern vector<SNP*> snp_list;
 extern vector<READ*> reads_list;

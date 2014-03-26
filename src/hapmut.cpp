@@ -46,7 +46,7 @@ using namespace BamTools;
 
 #include "read.h"
 #include "snp.h"
-#include "hmm.h"
+#include "nb.h"
 
 
 //#define DEBUG
@@ -168,12 +168,17 @@ void SetBamRegion(const char *samfile, BamReader &reader, string &refId, int sta
 	}
 
 	BamRegion bregion(RefId,start,RefId,end);
-	// REVISIT: SetRegion returns 0 irrespective of failure or success
-	// Also, try with LocateIndex and HasIndex functions.
-	int result = reader.SetRegion(bregion);
-	if(result) {
-		cerr << "Buggy:Unable to locate region " << refId << ":" << start << "-" << end << endl;
-		exit(1);
+	// REVISIT: SetRegion returns 1 irrespective of failure or success
+	// For the moment I'm relying upon validate_region to avoid incorrect values here.
+	reader.LocateIndex();
+	if(reader.HasIndex()) {
+		int result = reader.SetRegion(bregion);
+		if(!result) {
+			cerr << "Buggy:Unable to locate region " << refId << ":" << start << "-" << end << endl;
+			exit(1);
+		}
+	} else {
+		cerr << "No index file found for " << samfile << endl;
 	}
 	return;
 }
@@ -309,12 +314,17 @@ int get_read_span(const char *file_name, string &chr, int start, int end)
 	}
 
 	BamRegion bregion(RefId,start,RefId,end);
-	// REVISIT: SetRegion returns 0 irrespective of failure or success
-	// LocateIndex and HasIndex?
-	int result = reader.SetRegion(bregion);
-	if(result) {
-		cerr << "Buggy:Unable to locate region " << chr << ":" << start << "-" << end << endl;
-		exit(1);
+	// REVISIT: SetRegion returns 1 irrespective of failure or success
+	// For the moment I'm relying upon validate_region to avoid incorrect values here.
+	reader.LocateIndex();
+	if(reader.HasIndex()) {
+		int result = reader.SetRegion(bregion);
+		if(!result) {
+			cerr << "Buggy:Unable to locate region " << RefId << ":" << start << "-" << end << endl;
+			exit(1);
+		}
+	} else {
+		cerr << "No index file found for " << file_name << endl;
 	}
 
 	BamAlignment al;
@@ -728,8 +738,8 @@ int main(int argc, char **argv)
 
 	// Populate refList - list of chromosomes
 	if(validate_region(samfile,regionstr,&start,&end)<0) {
-		printf("Incorrect chr value: %s\n",regionstr);
-		return 1;
+		printf("Region %s could not be found\n",regionstr);
+		//return 1;
 	}
 
 	char stateOutputName[256];

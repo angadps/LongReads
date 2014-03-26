@@ -4,7 +4,9 @@
 .SUFFIXES: .o .C .c .cpp
 
 # FLAGS=  -O2
-FLAGS= -g -pg
+FLAGS= -g
+
+# Here and at other places the path to bamtools needs to be set
 HAPFLAGS= -Wl,-rpath,~/tools/bamtools-master/lib/
 
 SRCDIR = .
